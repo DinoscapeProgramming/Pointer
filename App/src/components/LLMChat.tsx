@@ -353,19 +353,119 @@ const CollapsibleCodeBlock: React.FC<{
 }> = React.memo(({ language, filename, content, isProcessing = false, startLine, endLine, isLineEdit = false }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
+  const [originalContent, setOriginalContent] = useState<string | null>(null);
+  const [loadedOriginal, setLoadedOriginal] = useState(false);
   
   // Calculate if the code block should be collapsible
   const lines = content.split('\n');
   const shouldBeCollapsible = lines.length > 10; // Only collapse if more than 10 lines
   const isCollapsible = shouldBeCollapsible && isCollapsed;
   
+  // Allow line-edit syntax in first code line as fallback: 10:15:src/file.ts (any comment prefix)
+  let displayContent = content;
+  let localStartLine: number | undefined;
+  let localEndLine: number | undefined;
+  let localIsLineEdit = false;
+  try {
+    const firstLine = content.split('\n')[0] || '';
+    const lineEditHeader = firstLine.replace(/^\s*(?:\/\/|#|;|--)?\s*/, '');
+    const m = lineEditHeader.match(/^(\d+):(\d+):(.+)$/);
+    if (m) {
+      localStartLine = parseInt(m[1], 10);
+      localEndLine = parseInt(m[2], 10);
+      if (!filename && m[3]) {
+        // Set filename implicitly if not provided
+        filename = m[3].trim();
+      }
+      localIsLineEdit = Number.isFinite(localStartLine) && Number.isFinite(localEndLine) && localStartLine! > 0 && localEndLine! >= localStartLine!;
+      if (localIsLineEdit) {
+        displayContent = content.split('\n').slice(1).join('\n');
+      }
+    }
+  } catch {}
+
+  const effectiveStartLine = startLine ?? localStartLine;
+  const effectiveEndLine = endLine ?? localEndLine;
+  const effectiveIsLineEdit = isLineEdit || localIsLineEdit;
+
   // Create display text for the header
   const getHeaderText = () => {
     const fileName = filename || `${language}.${getFileExtension(language)}`;
-    if (isLineEdit && startLine && endLine) {
-      return `${fileName} (lines ${startLine}-${endLine})`;
+    if (effectiveIsLineEdit && effectiveStartLine && effectiveEndLine) {
+      return `${fileName} (lines ${effectiveStartLine}-${effectiveEndLine})`;
     }
     return fileName;
+  };
+
+  // Load existing file content for inline diff view
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (filename) {
+          const current = await FileSystemService.readText(filename);
+          if (!cancelled) {
+            setOriginalContent(current);
+            setLoadedOriginal(true);
+          }
+        } else {
+          setLoadedOriginal(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setOriginalContent(null);
+          setLoadedOriginal(true);
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [filename]);
+
+  // Build a simple inline diff representation
+  const buildInlineDiff = (): { type: 'ctx' | 'add' | 'rem'; text: string }[] | null => {
+    if (!loadedOriginal) return null;
+    const newLines = displayContent.split('\n');
+    const oldLines = (originalContent ?? '').split('\n');
+
+    // If file doesn't exist, mark all as additions
+    if (originalContent === null) {
+      return newLines.map(l => ({ type: 'add', text: l }));
+    }
+
+    // Line-edit mode: show small window around edited range
+    if (effectiveIsLineEdit && effectiveStartLine && effectiveEndLine) {
+      const startIdx = Math.max(0, effectiveStartLine - 1);
+      const endIdxExclusive = Math.min(oldLines.length, effectiveEndLine);
+      const beforeStart = Math.max(0, startIdx - 3);
+      const afterEnd = Math.min(oldLines.length, endIdxExclusive + 3);
+
+      const result: { type: 'ctx' | 'add' | 'rem'; text: string }[] = [];
+      // Context before
+      for (let i = beforeStart; i < startIdx; i++) result.push({ type: 'ctx', text: oldLines[i] ?? '' });
+      // Removed lines
+      for (let i = startIdx; i < endIdxExclusive; i++) result.push({ type: 'rem', text: oldLines[i] ?? '' });
+      // Added lines (new content provided for edit block)
+      for (const l of newLines) result.push({ type: 'add', text: l });
+      // Context after
+      for (let i = endIdxExclusive; i < afterEnd; i++) result.push({ type: 'ctx', text: oldLines[i] ?? '' });
+      return result;
+    }
+
+    // Fallback unified diff: naive line-by-line compare by index
+    const maxLen = Math.max(oldLines.length, newLines.length);
+    const out: { type: 'ctx' | 'add' | 'rem'; text: string }[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const o = oldLines[i];
+      const n = newLines[i];
+      if (o === n) {
+        if (o !== undefined) out.push({ type: 'ctx', text: o });
+      } else {
+        if (o !== undefined) out.push({ type: 'rem', text: o });
+        if (n !== undefined) out.push({ type: 'add', text: n });
+      }
+    }
+    return out;
   };
   
   return (
@@ -479,13 +579,26 @@ const CollapsibleCodeBlock: React.FC<{
               background: 'transparent'
             }
           }}
-          lineProps={(lineNumber) => ({
-            style: {
-              backgroundColor: 'transparent',
-              display: 'block',
-              width: '100%'
+          lineProps={(lineNumber) => {
+            // Inline diff playback: if this is a line edit block, mark adds/removes
+            if (effectiveIsLineEdit && effectiveStartLine && effectiveEndLine) {
+              const inReplaced = lineNumber >= effectiveStartLine && lineNumber <= effectiveEndLine;
+              return {
+                style: {
+                  backgroundColor: inReplaced ? 'rgba(220, 38, 38, 0.12)' : 'transparent',
+                  display: 'block',
+                  width: '100%'
+                }
+              };
             }
-          })}
+            return {
+              style: {
+                backgroundColor: 'transparent',
+                display: 'block',
+                width: '100%'
+              }
+            };
+          }}
         >
           {content}
         </SyntaxHighlighter>
@@ -815,13 +928,16 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                     {children}
                   </li>
                 ),
-                code({ className, children, ...props }: CodeProps) {
+                code({ inline, className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
-                  
-                  // Check if this is a code block (triple backticks) or inline code (single backtick)
-                  const isCodeBlock = content.includes('\n') || content.length > 50;
-                  
-                  if (!isCodeBlock) {
+
+                  // Respect inline flag from ReactMarkdown to distinguish inline vs block code
+                  if (inline) {
+                    // Improve Windows path readability by unescaping double backslashes in inline code
+                    let displayContent = content;
+                    if ((/[A-Za-z]:\\\\/.test(displayContent)) || (/^\\\\\\\\/.test(displayContent))) {
+                      displayContent = displayContent.replace(/\\\\/g, '\\');
+                    }
                     return (
                       <code
                         style={{
@@ -834,7 +950,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                         }}
                         {...props}
                       >
-                        {content}
+                        {displayContent}
                       </code>
                     );
                   }
@@ -976,13 +1092,11 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                 {children}
               </li>
             ),
-            code({ className, children, ...props }: CodeProps) {
+            code({ inline, className, children, ...props }: CodeProps) {
               let content = String(children).replace(/\n$/, '');
-              
-              // Check if this is a code block (triple backticks) or inline code (single backtick)
-              const isCodeBlock = content.includes('\n') || content.length > 50;
-              
-              if (!isCodeBlock) {
+
+              // Use inline prop to render inline code; otherwise treat as block
+              if (inline) {
                 return (
                   <code
                     style={{
@@ -1314,29 +1428,71 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
   if (!content || !content.trim()) {
     return null;
   }
-  
+
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  // Recompute overflow whenever content changes or window resizes
+  useEffect(() => {
+    const updateOverflow = () => {
+      if (contentRef.current) {
+        const el = contentRef.current;
+        setHasOverflow(el.scrollHeight > el.clientHeight + 1); // +1 to avoid rounding glitches
+      }
+    };
+
+    updateOverflow();
+    window.addEventListener('resize', updateOverflow);
+    const id = window.setInterval(updateOverflow, 250); // content grows during streaming
+    return () => {
+      window.removeEventListener('resize', updateOverflow);
+      window.clearInterval(id);
+    };
+  }, [content]);
+
+  // Always keep the bottom-most part visible when collapsed
+  useEffect(() => {
+    if (!isExpanded && contentRef.current) {
+      const el = contentRef.current;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [content, isExpanded]);
+
+  const collapsedMaxHeight = 160; // px
+
+  // Create a stronger mask to fade the top when collapsed and overflowing
+  const maskStyle: React.CSSProperties | undefined = !isExpanded && hasOverflow
+    ? {
+        WebkitMaskImage:
+          'linear-gradient(to bottom, transparent 0, black 32px, black 100%)',
+        maskImage:
+          'linear-gradient(to bottom, transparent 0, black 32px, black 100%)',
+      }
+    : undefined;
+
   return (
     <div
       style={{
         marginTop: '4px',
-        marginBottom: '16px', // Increased from 8px to 16px for more space
+        marginBottom: '8px',
         padding: '4px 12px',
         color: 'var(--text-secondary)',
         fontSize: '13px',
         opacity: 0.7,
         display: 'flex',
         flexDirection: 'column',
-        gap: '4px',
-        position: 'relative', // Added for positioning
+        gap: '6px',
+        position: 'relative',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <svg 
-          width="14" 
-          height="14" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
           strokeWidth="2"
           style={{ animation: 'spin 2s linear infinite' }}
         >
@@ -1345,17 +1501,56 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
         </svg>
         <span style={{ fontWeight: 500 }}>Thinking...</span>
       </div>
-      <div style={{ paddingLeft: '22px' }}>{content}</div>
-      
-      {/* Spacer div to create more separation after thinking blocks and subsequent tool messages */}
-      <div style={{
-        position: 'absolute',
-        height: '10px',
-        bottom: '-10px',
-        left: 0,
-        right: 0,
-        pointerEvents: 'none'
-      }} />
+
+      <div
+        ref={contentRef}
+        style={{
+          paddingLeft: '22px',
+          whiteSpace: 'pre-wrap',
+          lineHeight: 1.5,
+          maxHeight: isExpanded ? 'none' : `${collapsedMaxHeight}px`,
+          overflowY: isExpanded ? 'visible' : 'auto',
+          ...maskStyle,
+        }}
+      >
+        {content.startsWith('\n') ? content.replace(/^\n+/, '') : content}
+      </div>
+
+      {/* Ensure we always show the latest part when collapsed */}
+      <style>{`@keyframes spin {from{transform:rotate(0)} to{transform:rotate(360deg)}}`}</style>
+
+      {(hasOverflow || isExpanded) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            aria-expanded={isExpanded}
+            onClick={() => setIsExpanded((v) => !v)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '12px',
+              padding: '2px 4px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <span>{isExpanded ? 'Show less' : 'Show more'}</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -1435,7 +1630,7 @@ const AUTO_INSERT_STYLES = `
   
   /* Add spacing between thinking blocks and subsequent tool messages */
   .think-block-container + div .message.tool {
-    margin-top: 12px !important;
+    margin-top: 6px !important;
   }
 `;
 
@@ -1649,7 +1844,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [currentMessageId, setCurrentMessageId] = useState<number>(1); // Track current message ID counter (not used for uuidv4)
   
   // Function to get the next message ID and increment the counter
-  const getNextMessageId = () => uuidv4();
+  // Use ascending numeric IDs for stable persistence
+  const getNextMessageId = () => {
+    const current = Number((window.highestMessageId as any) || 0);
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    window.highestMessageId = next;
+    return String(next);
+  };
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [width, setWidth] = useState(700);
@@ -2000,15 +2201,19 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (msg.tool_calls && msg.tool_calls.length > 0) {
           // Sort tool calls by ID to ensure consistent ordering
           const sortedToolCalls = [...msg.tool_calls].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
-          const toolCallsStr = sortedToolCalls.map(tc => 
-            `${tc.id}:${tc.function?.name || ''}:${JSON.stringify(tc.function?.arguments || {})}`
-          ).join('|');
+          const toolCallsStr = sortedToolCalls.map((tc: any) => {
+            const name = tc.function?.name ?? tc.name ?? '';
+            const args = tc.function?.arguments ?? tc.arguments ?? {};
+            const argsString = typeof args === 'string' ? args : JSON.stringify(args);
+            return `${tc.id}:${name}:${argsString}`;
+          }).join('|');
           parts.push(`tool_calls:${toolCallsStr}`);
         }
         
         // Add function call information if present (legacy support)
-        if (msg.function_call) {
-          parts.push(`function_call:${JSON.stringify(msg.function_call)}`);
+        const legacyFunctionCall: any = (msg as any).function_call;
+        if (legacyFunctionCall) {
+          parts.push(`function_call:${JSON.stringify(legacyFunctionCall)}`);
         }
         
         // Create a comprehensive hash-like signature
@@ -2030,10 +2235,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       console.log(`Comprehensive deduplication: ${filteredMessages.length} → ${deduplicatedMessages.length} messages (removed ${filteredMessages.length - deduplicatedMessages.length} duplicates)`);
       
+      // Ensure every message carries a persisted ascending messageId
+      let maxExistingId = 0;
+      deduplicatedMessages.forEach(m => {
+        const n = Number(m.messageId);
+        if (Number.isFinite(n)) maxExistingId = Math.max(maxExistingId, n);
+      });
+      window.highestMessageId = Math.max(Number(window.highestMessageId || 0), maxExistingId);
+
       const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
+        if (msg.messageId === undefined || msg.messageId === null || msg.messageId === '') {
+          msg.messageId = getNextMessageId();
+        }
         const cleanedMsg: any = {
           role: msg.role,
-          content: msg.content || ''
+          content: msg.content || '',
+          messageId: msg.messageId
         };
         // Do NOT include messageId in outgoing payload
         if (msg.role === 'assistant' && typeof msg.content === 'string' && 
@@ -2047,13 +2264,44 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 functionCall = JSON.parse(functionCallMatch[1]);
               } catch (e) {
                 console.error('Error parsing function call JSON:', e);
-                const idMatch = functionCallMatch[1].match(/"id"\s*:\s*"([^\"]+)"/);
-                const nameMatch = functionCallMatch[1].match(/"name"\s*:\s*"([^\"]+)"/);
-                const argsMatch = functionCallMatch[1].match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
+                // Robust fallback: extract balanced JSON object after "arguments":
+                const raw = functionCallMatch[1];
+                const idMatch = raw.match(/"id"\s*:\s*"([^\"]+)"/);
+                const nameMatch = raw.match(/"name"\s*:\s*"([^\"]+)"/);
+                let argsValue: string | null = null;
+                const argsIndex = raw.indexOf('"arguments"');
+                if (argsIndex >= 0) {
+                  const braceStart = raw.indexOf('{', argsIndex);
+                  const quoteStart = raw.indexOf('"', argsIndex);
+                  if (braceStart !== -1 && (quoteStart === -1 || braceStart < quoteStart)) {
+                    // Extract balanced braces
+                    let i = braceStart, depth = 0; let inStr = false; let prev = '';
+                    for (; i < raw.length; i++) {
+                      const ch = raw[i];
+                      if (inStr) {
+                        if (ch === '"' && prev !== '\\') inStr = false;
+                      } else {
+                        if (ch === '"') inStr = true;
+                        else if (ch === '{') depth++;
+                        else if (ch === '}') {
+                          depth--;
+                          if (depth === 0) { i++; break; }
+                        }
+                      }
+                      prev = ch;
+                    }
+                    const objStr = raw.slice(braceStart, i);
+                    argsValue = objStr;
+                  } else if (quoteStart !== -1) {
+                    // Quoted string argument
+                    const endQuote = raw.indexOf('"', quoteStart + 1);
+                    if (endQuote > quoteStart) argsValue = raw.slice(quoteStart, endQuote + 1);
+                  }
+                }
                 functionCall = {
                   id: idMatch?.[1] || generateValidToolCallId(),
                   name: nameMatch?.[1] || 'unknown_function',
-                  arguments: argsMatch?.[1] || '{}'
+                  arguments: argsValue || '{}'
                 };
               }
               cleanedMsg.tool_calls = [{
@@ -2061,8 +2309,17 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 type: 'function',
                 function: {
                   name: functionCall.name,
-                  arguments: typeof functionCall.arguments === 'string' ? 
-                    functionCall.arguments : JSON.stringify(functionCall.arguments)
+                  arguments: (() => {
+                    try {
+                      if (typeof functionCall.arguments === 'string') {
+                        // If it's an object string, keep as-is; if it's already JSON, keep it
+                        return functionCall.arguments;
+                      }
+                      return JSON.stringify(functionCall.arguments);
+                    } catch {
+                      return typeof functionCall.arguments === 'string' ? functionCall.arguments : '{}';
+                    }
+                  })()
                 }
               }];
               cleanedMsg.content = '';
@@ -5041,7 +5298,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           <div
             className={`message tool`}
             style={{
-              padding: '8px 12px', // Reduced padding for more compact display
+          padding: '6px 10px', // Slightly tighter for a more minimal look
               borderRadius: '8px',
               border: '1px solid var(--border-secondary)',
               width: '100%', // Add width to prevent overflow
@@ -5094,7 +5351,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                     <line x1="12" y1="17" x2="12.01" y2="17"></line>
                   </svg>}
                 </span>
-                  <span style={{ fontSize: '12px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
                     {detailedTitle || (() => {
                       // Try to extract the path from arguments
                       let pathInfo = '';
@@ -5179,16 +5436,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           )}
             
             {isExpanded && toolArgs && (
-              <div style={{
-                marginTop: '8px',
-                padding: '8px',
-                background: 'var(--bg-tertiary)',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontFamily: 'var(--font-mono)',
-                whiteSpace: 'pre-wrap',
-                overflowX: 'auto',
-              }}>
+                <div style={{
+                  marginTop: '6px',
+                  padding: '6px',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  whiteSpace: 'pre-wrap',
+                  overflowX: 'auto',
+                }}>
                 <div style={{
                   marginBottom: '4px',
                   fontWeight: 'bold',
@@ -5202,14 +5459,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             {isExpanded && (
               <>
                 <div style={{
-                  marginTop: '8px',
+                  marginTop: '6px',
                   fontWeight: 'bold',
                   fontSize: '11px',
                   color: 'var(--text-secondary)',
                 }}>Result:</div>
                 <pre style={{
-                  marginTop: '4px',
-                  padding: '8px',
+                  marginTop: '3px',
+                  padding: '6px',
                   background: 'var(--bg-tertiary)',
                   borderRadius: '4px',
                   fontSize: '12px',
@@ -5232,22 +5489,23 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     return (
       <div
         key={message.messageId}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
-          position: 'relative',
-          width: '100%',
-          opacity: shouldBeFaded ? 0.5 : 1,
-          transition: 'opacity 0.2s ease',
-        }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
+            position: 'relative',
+            width: '100%',
+            opacity: shouldBeFaded ? 0.5 : 1,
+            transition: 'opacity 0.2s ease',
+            gap: '6px',
+          }}
       >
         <div
           className={`message ${message.role}`}
           style={{
-            background: message.role === 'user' ? 'var(--bg-primary)' : 'var(--bg-secondary)',
-            padding: '12px',
-            borderRadius: '8px',
+              background: message.role === 'user' ? 'var(--bg-primary)' : 'var(--bg-secondary)',
+              padding: '10px',
+              borderRadius: '10px',
             maxWidth: '85%',
             border: message.role === 'user' ? '1px solid var(--border-primary)' : 'none',
           }}
@@ -5257,9 +5515,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             <div
               style={{
                 backgroundColor: 'var(--bg-secondary)',
-                padding: '12px',
-                borderRadius: '8px',
-                marginBottom: '12px',
+                padding: '10px',
+                borderRadius: '10px',
+                marginBottom: '8px',
                 position: 'relative',
               }}
             >

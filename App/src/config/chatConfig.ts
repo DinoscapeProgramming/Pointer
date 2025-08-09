@@ -27,10 +27,6 @@ export const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-create_file (create a new file): function_call: {"name": "create_file","arguments": {"file_path": "path/to/newfile.txt","content": "file content here","create_directories": true}}
-
-edit_file (edit an existing file): function_call: {"name": "edit_file","arguments": {"file_path": "path/to/file.txt","start_line": 1,"end_line": 10,"new_content": "replacement content"}}
-
 delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
 
 move_file (move/rename a file): function_call: {"name": "move_file","arguments": {"source_path": "old/path.txt","destination_path": "new/path.txt","create_directories": true}}
@@ -45,7 +41,7 @@ fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_web
 
 run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
 
-list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
+ list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"directory_path": "path/to/directory"}}
 
 get_codebase_overview (get comprehensive codebase overview): function_call: {"name": "get_codebase_overview","arguments": {}}
 
@@ -77,17 +73,24 @@ Format 2 - Filename in first line comment:
 // Your code here
 \`\`\`
 
-Format 3 - Line-specific editing:
+Format 3 - Line-specific editing (two options):
+Option A (header syntax):
 \`\`\`typescript:10:15:src/components/MyComponent.tsx
-// Replace lines 10-15 with this content
+// Replacement content for lines 10-15
 \`\`\`
 
-Line-specific editing syntax: startline:endline:filename.ext
-- startline: First line to replace (1-indexed)
-- endline: Last line to replace (1-indexed, inclusive)
-- Only replaces the specified lines, leaving the rest unchanged
+Option B (first-line comment syntax):
+\`\`\`typescript
+// 10:15:src/components/MyComponent.tsx
+// Replacement content for lines 10-15
+\`\`\`
 
-This automatically saves the file into the specified location.
+Line-specific editing header format: start:end:filename
+- start: First line to replace (1-indexed)
+- end: Last line to replace (1-indexed, inclusive)
+- The first-line comment form is also accepted and will be removed automatically
+
+This automatically saves the file into the specified location and will render an inline diff preview showing added (+) and removed (-) lines.
 
 Important: The codebase is automatically indexed when a workspace is opened. You can use get_codebase_overview to understand the project structure, search_codebase to find specific functions/classes, and get_file_overview to understand individual files before reading them.
 
@@ -134,9 +137,7 @@ export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-create_file (create a new file): function_call: {"name": "create_file","arguments": {"file_path": "path/to/newfile.txt","content": "file content here","create_directories": true}}
-
-edit_file (edit an existing file): function_call: {"name": "edit_file","arguments": {"file_path": "path/to/file.txt","start_line": 1,"end_line": 10,"new_content": "replacement content"}}
+// File creation and editing: use triple backtick code blocks with filename or line-edit header/comment (see below)
 
 delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
 
@@ -152,7 +153,7 @@ fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_web
 
 run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
 
-list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
+ list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"directory_path": "path/to/directory"}}
 
 get_codebase_overview (get comprehensive codebase overview): function_call: {"name": "get_codebase_overview","arguments": {}}
 

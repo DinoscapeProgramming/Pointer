@@ -222,33 +222,26 @@ export class ToolService {
       
       // First, sanitize the tool name to prevent duplications
       const sanitizedToolName = this.sanitizeToolName(toolName);
-      
       // Save chat before tool execution
       await this.saveCurrentChat();
       
       console.log(`Calling tool ${sanitizedToolName} with params:`, params);
       
-      // Determine if the tool name is already in backend format
-      let backendToolName = sanitizedToolName;
-      
-      // Only map the tool name if it's in frontend format
-      if (sanitizedToolName === 'list_dir') {
-        backendToolName = 'list_directory';
-        console.log(`Mapped frontend tool name ${sanitizedToolName} to backend tool name ${backendToolName}`);
-      } else {
-        console.log(`Using tool name as-is: ${backendToolName}`);
-      }
-      
-      // Map parameter names if needed (e.g., relative_workspace_path to directory_path)
-      let mappedParams = {...params};
-      if (backendToolName === 'list_directory' && params.relative_workspace_path) {
-        mappedParams = {
-          directory_path: params.relative_workspace_path
-        };
-        console.log(`Mapped relative_workspace_path to directory_path for list_directory`);
-      }
+      // Map to backend tool name consistently
+      let backendToolName = ToolService.mapToolName(sanitizedToolName, 'to_backend');
+      console.log(`Mapped tool name ${sanitizedToolName} -> ${backendToolName}`);
+
+      // Normalize parameters for the backend
+      const mappedParams = this.normalizeParamsForBackend(backendToolName, params);
       
       console.log(`Making API call to backend tool ${backendToolName} with params:`, mappedParams);
+      // Debug: print full tool call payload clearly
+      try {
+        console.log('[TOOL DEBUG] Outgoing tool call:', JSON.stringify({
+          tool_name: backendToolName,
+          params: mappedParams
+        }, null, 2));
+      } catch {}
       
       const response = await fetch(`${this.baseUrl}/call`, {
         method: 'POST',
@@ -294,6 +287,71 @@ export class ToolService {
       // Reset executing flag after tool call completes using the static method
       ToolService.setToolExecutionState(false);
     }
+  }
+
+  /**
+   * Normalize parameters for backend tools to ensure expected keys are present
+   */
+  private normalizeParamsForBackend(backendToolName: string, params: any): any {
+    const p = { ...(params || {}) };
+
+    if (backendToolName === 'list_directory') {
+      // Prefer explicit directory_path; support relative_workspace_path and file_path fallbacks
+      if (!p.directory_path) {
+        if (p.relative_workspace_path) p.directory_path = p.relative_workspace_path;
+        else if (p.file_path) p.directory_path = p.file_path;
+      }
+      // Remove aliases to avoid backend "unexpected keyword" errors
+      delete p.relative_workspace_path;
+      delete p.file_path;
+    }
+
+    if (backendToolName === 'read_file') {
+      // Prefer target_file; support file_path and directory_path fallbacks
+      if (!p.target_file) {
+        if (p.file_path) p.target_file = p.file_path;
+        else if (p.directory_path) p.target_file = p.directory_path;
+      }
+      delete p.file_path;
+      delete p.directory_path;
+    }
+
+    if (backendToolName === 'edit_file') {
+      // Coalesce file path parameter
+      if (!p.target_file) {
+        if (p.file_path) p.target_file = p.file_path;
+        else if (p.path) p.target_file = p.path;
+      }
+      // Coalesce line numbers (support camelCase and strings)
+      const sl = p.start_line ?? p.startLine;
+      const el = p.end_line ?? p.endLine;
+      if (sl != null) p.start_line = Number(sl);
+      if (el != null) p.end_line = Number(el);
+      // Coalesce new content
+      if (p.new_content == null) {
+        if (p.newContent != null) p.new_content = p.newContent;
+        else if (p.content != null) p.new_content = p.content;
+      }
+      // Normalize append to boolean
+      if (p.append != null) {
+        if (typeof p.append === 'string') p.append = p.append.toLowerCase() === 'true';
+        else p.append = Boolean(p.append);
+      }
+      // Clean aliases
+      delete p.file_path;
+      delete p.path;
+      delete p.startLine;
+      delete p.endLine;
+      delete p.newContent;
+      delete p.content;
+    }
+
+    // run_terminal_cmd: ensure timeout is a number
+    if (backendToolName === 'run_terminal_cmd') {
+      if (p.timeout != null) p.timeout = Number(p.timeout);
+    }
+
+    return p;
   }
 
   /**

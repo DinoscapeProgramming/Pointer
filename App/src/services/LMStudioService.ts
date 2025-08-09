@@ -474,6 +474,20 @@ class LMStudioService {
             } else {
               params = {}; // Empty params for read_file
             }
+          } else if (toolName === 'edit_file') {
+            // Attempt to extract edit_file fields robustly from raw string
+            const fileMatch = argsStr.match(/\b(?:target_file|file_path|path)\b\s*:\s*"([^"]+)"/);
+            const slMatch = argsStr.match(/\b(?:start_line|startLine)\b\s*:\s*(\d+)/);
+            const elMatch = argsStr.match(/\b(?:end_line|endLine)\b\s*:\s*(\d+)/);
+            // Try to capture new_content as a quoted JSON string (non-greedy, dotall)
+            let ncMatch = argsStr.match(/"new_content"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
+            let newContent = ncMatch && ncMatch[1] ? ncMatch[1] : undefined;
+            params = {
+              ...(fileMatch && { target_file: fileMatch[1] }),
+              ...(slMatch && { start_line: Number(slMatch[1]) }),
+              ...(elMatch && { end_line: Number(elMatch[1]) }),
+              ...(newContent !== undefined && { new_content: newContent })
+            };
           } else {
             params = {}; // Default empty params
           }
@@ -606,6 +620,38 @@ class LMStudioService {
       if (!fixedParams.target_file) {
         console.warn('No target_file parameter for read_file');
       }
+    } else if (toolName === 'edit_file') {
+      // Normalize edit_file parameters from common variants
+      const merged: any = { ...(params || {}) };
+      // file path
+      if (!merged.target_file) {
+        if (merged.file_path) merged.target_file = merged.file_path;
+        else if (merged.path) merged.target_file = merged.path;
+      }
+      // line numbers (accept camelCase and strings)
+      const sl = merged.start_line ?? merged.startLine;
+      const el = merged.end_line ?? merged.endLine;
+      if (sl != null) merged.start_line = Number(sl);
+      if (el != null) merged.end_line = Number(el);
+      // content
+      if (merged.new_content == null) {
+        if (merged.newContent != null) merged.new_content = merged.newContent;
+        else if (merged.content != null) merged.new_content = merged.content;
+      }
+      // append flag
+      if (merged.append != null) {
+        if (typeof merged.append === 'string') merged.append = merged.append.toLowerCase() === 'true';
+        else merged.append = Boolean(merged.append);
+      }
+      // Clean aliases
+      delete merged.file_path;
+      delete merged.path;
+      delete merged.startLine;
+      delete merged.endLine;
+      delete merged.newContent;
+      delete merged.content;
+
+      fixedParams = merged;
     }
     
     console.log(`Tool parameters after fixing: ${JSON.stringify(fixedParams)}`);
@@ -1066,8 +1112,8 @@ class LMStudioService {
     // First, check if we need to add any missing tools that might be in messages
     let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
     
-    // Add missing required tools
-        const requiredTools = ['read_file', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
+    // Add missing required tools (remove create_file/edit_file in favor of code blocks)
+        const requiredTools = ['read_file', 'delete_file', 'move_file', 'copy_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
     const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
     
     if (missingTools.length > 0) {
@@ -1343,6 +1389,7 @@ class LMStudioService {
       tools = [...tools, ...additionalTools];
     }
     
+    // Map tool names and parameter schemas to backend expectations
     return tools.map(tool => {
       if (tool.function && tool.function.name) {
         // Get frontend-compatible tool name
@@ -1352,14 +1399,35 @@ class LMStudioService {
         if (frontendName !== backendName) {
           console.log(`Mapping tool name from ${frontendName} to ${backendName}`);
         }
-        
-        return {
+
+        const mapped = {
           ...tool,
           function: {
             ...tool.function,
             name: backendName
           }
         };
+
+        // Normalize parameter schemas for consistency (e.g., list_directory expects directory_path)
+        try {
+          if (mapped.function?.name === 'list_directory' && mapped.function.parameters?.properties) {
+            const props = mapped.function.parameters.properties;
+            // Ensure directory_path exists; drop relative_workspace_path in schema
+            if (!props.directory_path) {
+              props.directory_path = { type: 'string', description: 'The path to the directory to list' };
+            }
+            delete props.relative_workspace_path;
+          }
+          if (mapped.function?.name === 'read_file' && mapped.function.parameters?.properties) {
+            const props = mapped.function.parameters.properties;
+            if (!props.target_file && props.file_path) {
+              props.target_file = props.file_path;
+            }
+            delete props.file_path;
+          }
+        } catch {}
+        
+        return mapped;
       }
       return tool;
     });
@@ -1949,18 +2017,60 @@ class LMStudioService {
       }
       
       // Validate and fix tool parameters
-      const validatedToolCall = this.validateAndFixToolCallParameters(toolCall);
+      let validatedToolCall = this.validateAndFixToolCallParameters(toolCall);
+      // Extra guard for edit_file: if arguments parsed to empty {}, try to salvage from accumulatedContent
+      try {
+        if ((validatedToolCall.function?.name === 'edit_file') && validatedToolCall.function?.arguments) {
+          const argsObj = typeof validatedToolCall.function.arguments === 'string'
+            ? JSON.parse(validatedToolCall.function.arguments || '{}')
+            : (validatedToolCall.function.arguments || {});
+          const argKeys = Object.keys(argsObj || {});
+          if (argKeys.length === 0) {
+            // Try extraction from accumulatedContent chunk
+            const content = accumulatedContent || '';
+            const block = content.match(/function_call\s*:\s*\{[\s\S]*?"name"\s*:\s*"edit_file"[\s\S]*?\}/);
+            if (block && block[0]) {
+              const raw = block[0];
+              const fileMatch = raw.match(/\b(?:target_file|file_path|path)\b\s*:\s*"([^"]+)"/);
+              const slMatch = raw.match(/\b(?:start_line|startLine)\b\s*:\s*(\d+)/);
+              const elMatch = raw.match(/\b(?:end_line|endLine)\b\s*:\s*(\d+)/);
+              let ncMatch = raw.match(/"new_content"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
+              const newArgs = {
+                ...(fileMatch && { target_file: fileMatch[1] }),
+                ...(slMatch && { start_line: Number(slMatch[1]) }),
+                ...(elMatch && { end_line: Number(elMatch[1]) }),
+                ...(ncMatch && ncMatch[1] && { new_content: ncMatch[1] })
+              };
+              validatedToolCall.function.arguments = JSON.stringify(newArgs);
+              console.log('[TOOL DEBUG] Salvaged edit_file arguments from content');
+            }
+          }
+        }
+      } catch {}
       
       // Get the consistent storage tool name
       const backendToolName = validatedToolCall.function.name || '';
       const storageToolName = this.mapToolName(backendToolName, 'storage');
       
       // Log the tool call
-      console.log('FLUSHING COMPLETE TOOL CALL:', {
-        id: validatedToolCall.id,
-        name: storageToolName,
-        args: validatedToolCall.function.arguments
-      });
+          console.log('FLUSHING COMPLETE TOOL CALL:', {
+            id: validatedToolCall.id,
+            name: storageToolName,
+            args: validatedToolCall.function.arguments
+          });
+          try {
+            console.log('[TOOL DEBUG] Finalized tool call for client:', JSON.stringify({
+              id: validatedToolCall.id,
+              name: storageToolName,
+              arguments: JSON.parse(validatedToolCall.function.arguments || '{}')
+            }, null, 2));
+          } catch {
+            console.log('[TOOL DEBUG] Finalized tool call for client:', {
+              id: validatedToolCall.id,
+              name: storageToolName,
+              arguments: validatedToolCall.function.arguments
+            });
+          }
       
       // Format the tool call data for the client
       const formattedToolCall = `function_call: ${JSON.stringify({
