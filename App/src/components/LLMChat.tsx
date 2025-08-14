@@ -1415,7 +1415,7 @@ const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content,
             whiteSpace: 'pre-wrap',
           }}
         >
-          {content}
+          {content.startsWith('\n') ? content.replace(/^\n/, '') : content}
         </div>
       )}
     </div>
@@ -1513,7 +1513,7 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
           ...maskStyle,
         }}
       >
-        {content.startsWith('\n') ? content.replace(/^\n+/, '') : content}
+        {content.startsWith('\n') ? content.replace(/^\n/, '') : content}
       </div>
 
       {/* Ensure we always show the latest part when collapsed */}
@@ -4135,7 +4135,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             }
             
             // Validate tool name (prevent phantom tools)
-            const validToolNames = ['list_directory', 'list_dir', 'read_file', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
+            const validToolNames = ['list_directory', 'list_dir', 'read_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
             
             if (!validToolNames.includes(functionCall.name)) {
               console.warn(`Invalid tool name: ${functionCall.name}. Cancelling response and retrying.`);
@@ -4192,9 +4192,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             
             // Validate that required arguments are present
             const requiredArgs = {
-              'edit_file': ['file_path'], // Can also use target_file
               'read_file': ['file_path'], // Can also use target_file
-              'create_file': ['file_path'], // Can also use target_file
               'delete_file': ['file_path'], // Can also use target_file
               'move_file': ['source_path', 'destination_path'],
               'copy_file': ['source_path', 'destination_path'],
@@ -4206,7 +4204,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               let missingArgs: string[] = [];
               
               // Special handling for file operations that can use either file_path or target_file
-              if (['edit_file', 'read_file', 'create_file', 'delete_file'].includes(functionCall.name)) {
+              if (['read_file', 'delete_file'].includes(functionCall.name)) {
                 const hasFilePath = functionCall.arguments && 
                   typeof functionCall.arguments === 'object' && 
                   (functionCall.arguments.file_path || functionCall.arguments.target_file);

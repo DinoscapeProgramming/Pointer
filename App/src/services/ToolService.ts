@@ -14,8 +14,6 @@ export class ToolService {
     // Frontend to backend mappings
     'list_dir': 'list_directory',
     'read_file': 'read_file',
-    'create_file': 'create_file',
-    'edit_file': 'edit_file',
     'delete_file': 'delete_file',
     'move_file': 'move_file',
     'copy_file': 'copy_file',
@@ -137,19 +135,6 @@ export class ToolService {
         const exitCode = result.return_code !== undefined ? result.return_code : 'unknown';
         const executionTime = result.execution_time ? `${result.execution_time}s` : 'unknown';
         return `Ran command [${command}]: ${result.success ? 'Success' : 'Failed'} (exit code: ${exitCode}, time: ${executionTime})`;
-      }
-      else if (toolName === 'create_file') {
-        const path = params.file_path || '';
-        const lines = result.lines || 'unknown';
-        const size = result.size || 'unknown';
-        return `Created file [${path}]: ${result.success ? 'Success' : 'Failed'} (${lines} lines, ${size} bytes)`;
-      }
-      else if (toolName === 'edit_file') {
-        const path = params.file_path || '';
-        const operation = result.operation || 'edit';
-        const originalLines = result.original_lines || 'unknown';
-        const newLines = result.new_lines || 'unknown';
-        return `Edited file [${path}]: ${result.success ? 'Success' : 'Failed'} (${operation}, ${originalLines}→${newLines} lines)`;
       }
       else if (toolName === 'delete_file') {
         const path = params.file_path || '';

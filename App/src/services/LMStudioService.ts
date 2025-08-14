@@ -1112,7 +1112,7 @@ class LMStudioService {
     // First, check if we need to add any missing tools that might be in messages
     let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
     
-    // Add missing required tools (remove create_file/edit_file in favor of code blocks)
+    // Add missing required tools
         const requiredTools = ['read_file', 'delete_file', 'move_file', 'copy_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
     const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
     
@@ -1183,66 +1183,6 @@ class LMStudioService {
                   }
                 },
                 required: ["target_file"]
-              }
-            }
-          };
-        } else if (name === 'create_file') {
-          return {
-            type: "function",
-            function: {
-              name: "create_file",
-              description: "Create a new file with specified content",
-              parameters: {
-                type: "object",
-                properties: {
-                  file_path: {
-                    type: "string",
-                    description: "Path where the file should be created"
-                  },
-                  content: {
-                    type: "string",
-                    description: "Content to write to the file (default: empty string)"
-                  },
-                  create_directories: {
-                    type: "boolean",
-                    description: "Whether to create parent directories if they don't exist (default: true)"
-                  }
-                },
-                required: ["file_path"]
-              }
-            }
-          };
-        } else if (name === 'edit_file') {
-          return {
-            type: "function",
-            function: {
-              name: "edit_file",
-              description: "Edit an existing file by replacing lines or appending content",
-              parameters: {
-                type: "object",
-                properties: {
-                  file_path: {
-                    type: "string",
-                    description: "Path to the file to edit"
-                  },
-                  start_line: {
-                    type: "integer",
-                    description: "Starting line number (1-indexed) for replacement"
-                  },
-                  end_line: {
-                    type: "integer",
-                    description: "Ending line number (1-indexed) for replacement (inclusive)"
-                  },
-                  new_content: {
-                    type: "string",
-                    description: "New content to insert"
-                  },
-                  append: {
-                    type: "boolean",
-                    description: "If true, append content to the end of the file (default: false)"
-                  }
-                },
-                required: ["file_path"]
               }
             }
           };
