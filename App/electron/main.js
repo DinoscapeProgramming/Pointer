@@ -1,6 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
-const os = require('os');
 const isDev = process.env.NODE_ENV !== 'production';
 const DiscordRPC = require('discord-rpc');
 const fs = require('fs');
@@ -231,7 +230,7 @@ function replaceVariables(message) {
 
 // Define icon path based on platform
 const getIconPath = () => {
-  const platform = os.platform();
+  const platform = process.platform
   const logoPath = path.join(__dirname, 'logo.png');
   
   // On macOS, we need to use the .icns file for the dock icon
