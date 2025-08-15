@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV !== 'production';
 const DiscordRPC = require('discord-rpc');
+const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 
 // Get dev server port from environment variable or default to 3000
@@ -552,6 +553,12 @@ app.whenReady().then(async () => {
   
   // Create the main window
   await createWindow();
+
+  autoUpdater.checkForUpdatesAndNotify();
+
+  setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 1 * 60 * 60 * 1000); // every hour
 });
 
 // Quit when all windows are closed.
