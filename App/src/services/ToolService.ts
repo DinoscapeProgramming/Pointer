@@ -301,36 +301,6 @@ export class ToolService {
       delete p.directory_path;
     }
 
-    if (backendToolName === 'edit_file') {
-      // Coalesce file path parameter
-      if (!p.target_file) {
-        if (p.file_path) p.target_file = p.file_path;
-        else if (p.path) p.target_file = p.path;
-      }
-      // Coalesce line numbers (support camelCase and strings)
-      const sl = p.start_line ?? p.startLine;
-      const el = p.end_line ?? p.endLine;
-      if (sl != null) p.start_line = Number(sl);
-      if (el != null) p.end_line = Number(el);
-      // Coalesce new content
-      if (p.new_content == null) {
-        if (p.newContent != null) p.new_content = p.newContent;
-        else if (p.content != null) p.new_content = p.content;
-      }
-      // Normalize append to boolean
-      if (p.append != null) {
-        if (typeof p.append === 'string') p.append = p.append.toLowerCase() === 'true';
-        else p.append = Boolean(p.append);
-      }
-      // Clean aliases
-      delete p.file_path;
-      delete p.path;
-      delete p.startLine;
-      delete p.endLine;
-      delete p.newContent;
-      delete p.content;
-    }
-
     // run_terminal_cmd: ensure timeout is a number
     if (backendToolName === 'run_terminal_cmd') {
       if (p.timeout != null) p.timeout = Number(p.timeout);

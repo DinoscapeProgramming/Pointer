@@ -3500,16 +3500,57 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         onUpdate: async (content: string) => {
           currentContent = content;
           setMessages(prev => {
-            // Always update the last message (the assistant message for this turn)
+            // Always update the last assistant message (not necessarily the last message in the array)
+            // Prefer messages with empty content as they are likely the streaming message we just created
             const newMessages = [...prev];
-            if (newMessages.length > 0 && newMessages[newMessages.length - 1].role === 'assistant') {
-              // Safely update only the content while preserving ALL other properties
-              const lastMessage = newMessages[newMessages.length - 1];
-              newMessages[newMessages.length - 1] = {
-                ...lastMessage,  // Preserve ALL original properties including messageId
+            let lastAssistantMessageIndex = -1;
+            let streamingMessageIndex = -1;
+            
+            for (let i = newMessages.length - 1; i >= 0; i--) {
+              if (newMessages[i].role === 'assistant') {
+                if (lastAssistantMessageIndex === -1) {
+                  lastAssistantMessageIndex = i;
+                }
+                // Check if this is the streaming message (empty content)
+                if (newMessages[i].content === '') {
+                  streamingMessageIndex = i;
+                  break; // Prefer the streaming message
+                }
+              }
+            }
+            
+            // Use streaming message if found, otherwise fall back to last assistant message
+            const targetIndex = streamingMessageIndex !== -1 ? streamingMessageIndex : lastAssistantMessageIndex;
+            
+            if (targetIndex !== -1) {
+              const targetMessage = newMessages[targetIndex];
+              console.log(`Updating assistant message at index ${targetIndex} with messageId ${targetMessage.messageId} (${targetMessage.content === '' ? 'streaming' : 'existing'} message)`);
+              
+              newMessages[targetIndex] = {
+                ...targetMessage,  // Preserve ALL original properties (messageId, etc)
                 content: content  // Only update the content
               };
+            } else {
+              console.warn('No assistant message found to update during streaming');
             }
+            
+            // Save chat during streaming with proper tool_calls format
+            if (currentChatId && (!window.lastContentLength || 
+                Math.abs(content.length - window.lastContentLength) > 100)) {
+              window.lastContentLength = content.length;
+              
+              // Increment the version to ensure we're not overwritten
+              window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+              const saveVersion = window.chatSaveVersion;
+              
+              setTimeout(() => {
+                // Only save if our version is still current
+                if ((window.chatSaveVersion || 0) === saveVersion) {
+                  saveChat(currentChatId, newMessages, false);
+                }
+              }, 100);
+            }
+            
             return newMessages;
           });
 
@@ -3543,21 +3584,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       } else {
               // Whether there are tool calls or not, always save the final AI message
       if (currentChatId) {
-        // Ensure we have the final message content before saving
-        const lastMessageIndex = messages.length - 1;
-        const updatedMessages = [...messages];
-        
-        // Make sure the last message has the complete content
-        if (updatedMessages[lastMessageIndex]?.role === 'assistant') {
-          updatedMessages[lastMessageIndex].content = currentContent;
-        }
+        // The streaming content should already be properly set in the message
+        // No need to update it again here to avoid race conditions
         
         // Save chat with the complete response but avoid reloading to prevent flickering
         // Only reload if we expect there to be tool calls
         const containsToolCalls = currentContent.includes('function_call:') || 
                                  currentContent.includes('<function_calls>');
         console.log('Saving chat with complete AI response');
-        await saveChat(currentChatId, updatedMessages, containsToolCalls);
+        await saveChat(currentChatId, messages, containsToolCalls);
       }
       }
 
@@ -3580,7 +3615,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         ...prev,
         {
           role: 'assistant',
-          content: 'I apologize, but I encountered an error processing your request. Please try again.'
+          content: 'I apologize, but I encountered an error processing your request. Please try again.',
+          messageId: getNextMessageId()
         }
       ]);
     } finally {
@@ -3938,7 +3974,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setMessages(prev => {
           const assistantErrorMessage: ExtendedMessage = {
             role: 'assistant',
-            content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${errorMessage}\n\nLet me try to help you with what I know instead.`
+            content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${errorMessage}\n\nLet me try to help you with what I know instead.`,
+            messageId: getNextMessageId()
           };
           
           const updatedMessages = [...prev, assistantErrorMessage];
@@ -4732,7 +4769,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setMessages(prev => {
         const newMessages = [...prev, { 
           role: 'assistant' as const, 
-          content: '' 
+          content: '',
+          messageId: getNextMessageId()  // Ensure proper message ID assignment
         }];
         return newMessages;
       });
@@ -4817,15 +4855,39 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             // Update the messages state with the streaming content
             setMessages(prev => {
               const newMessages = [...prev];
-              // Preserve the original message properties and only update content/tool_calls
-              const lastMessage = newMessages[newMessages.length - 1];
-              if (lastMessage && lastMessage.role === 'assistant') {
+              // Find the last assistant message to update (not necessarily the last message in the array)
+              // Prefer messages with empty content as they are likely the streaming message we just created
+              let lastAssistantMessageIndex = -1;
+              let streamingMessageIndex = -1;
+              
+              for (let i = newMessages.length - 1; i >= 0; i--) {
+                if (newMessages[i].role === 'assistant') {
+                  if (lastAssistantMessageIndex === -1) {
+                    lastAssistantMessageIndex = i;
+                  }
+                  // Check if this is the streaming message (empty content)
+                  if (newMessages[i].content === '') {
+                    streamingMessageIndex = i;
+                    break; // Prefer the streaming message
+                  }
+                }
+              }
+              
+              // Use streaming message if found, otherwise fall back to last assistant message
+              const targetIndex = streamingMessageIndex !== -1 ? streamingMessageIndex : lastAssistantMessageIndex;
+              
+              if (targetIndex !== -1) {
+                const targetMessage = newMessages[targetIndex];
+                console.log(`Updating assistant message at index ${targetIndex} with messageId ${targetMessage.messageId} (${targetMessage.content === '' ? 'streaming' : 'existing'} message)`);
+                
                 // SAFE UPDATE: Preserve all original properties, only update specific fields
-                newMessages[newMessages.length - 1] = {
-                  ...lastMessage,  // Preserve ALL original properties (messageId, etc)
-                  content: newMessage.content,  // Update content
-                  ...(newMessage.tool_calls && { tool_calls: newMessage.tool_calls })  // Add tool_calls if present
+                newMessages[targetIndex] = {
+                  ...targetMessage,  // Preserve ALL original properties (messageId, etc)
+                  content: content,  // Use the streaming content directly
+                  ...(hasFunctionCall && { tool_calls: [] })  // Add empty tool_calls array if function call detected
                 };
+              } else {
+                console.warn('No assistant message found to update during streaming');
               }
               
               // Save chat during streaming with proper tool_calls format
@@ -4874,32 +4936,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (currentChatId) {
           console.log('AI response completed - saving final chat state');
           
-          // Get current messages to ensure we have the latest state
-          let currentMessages: ExtendedMessage[] = [];
-          setMessages(prev => {
-            currentMessages = [...prev];
-            
-            // Update the last message with the complete content
-            if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
-              // SAFE UPDATE: Preserve all properties, only update content
-              const lastMessage = currentMessages[currentMessages.length - 1];
-              currentMessages[currentMessages.length - 1] = {
-                ...lastMessage,  // Preserve ALL original properties
-                content: currentContent  // Only update the content
-              };
-            }
-            
-            return currentMessages;
-          });
-          
-          // Let the state update
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // The streaming content should already be properly set in the message
+          // No need to update it again here to avoid race conditions
           
           // Save chat without reload to prevent flickering
           // Only reload if the message contains tool calls
           const containsToolCalls = currentContent.includes('function_call:') || 
                                    currentContent.includes('<function_calls>');
-          await saveChat(currentChatId, currentMessages, containsToolCalls);
+          await saveChat(currentChatId, messages, containsToolCalls);
         }
         
         // Process any final tool calls after streaming is complete
@@ -4951,23 +4995,33 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           
         setMessages(prev => {
           const newMessages = [...prev];
-          // Update the last message with an error message
-          if (newMessages[newMessages.length - 1].role === 'assistant' && 
-              (!newMessages[newMessages.length - 1].content || 
-               newMessages[newMessages.length - 1].content.length < 5)) {
-            newMessages[newMessages.length - 1] = {
-              role: 'assistant' as const,
+          // Find the last assistant message to update with error message
+          let lastAssistantMessageIndex = -1;
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].role === 'assistant') {
+              lastAssistantMessageIndex = i;
+              break;
+            }
+          }
+          
+          if (lastAssistantMessageIndex !== -1 && 
+              (!newMessages[lastAssistantMessageIndex].content || 
+               newMessages[lastAssistantMessageIndex].content.length < 5)) {
+            // Update the existing assistant message with error content
+            newMessages[lastAssistantMessageIndex] = {
+              ...newMessages[lastAssistantMessageIndex],
               content: "I apologize, but I encountered an error while trying to continue our conversation."
             };
           } else {
-            // Add a new message if the last one already has content
+            // Add a new error message if no suitable assistant message found
             newMessages.push({
               role: 'assistant' as const,
-              content: "I apologize, but I encountered an error while trying to continue our conversation."
+              content: "I apologize, but I encountered an error while trying to continue our conversation.",
+              messageId: getNextMessageId()
             });
           }
           return newMessages;
-          });
+        });
           
           setIsInToolExecutionChain(false);
           setIsProcessing(false);
