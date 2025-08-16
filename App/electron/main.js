@@ -554,6 +554,23 @@ app.whenReady().then(async () => {
   // Create the main window
   await createWindow();
 
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(''); // empty app user model id to allow the jump list to be set correctly
+
+    app.setUserTasks([
+      {
+        program: process.execPath,
+        arguments: (isDev) ? __filename : '',
+        iconPath: path.join(__dirname, 'logo.png'),
+        iconIndex: 0,
+        title: 'New Window',
+        description: 'Open a new application window'
+      }
+    ]);
+
+    app.setAppUserModelId('com.pointer');
+  };
+
   autoUpdater.checkForUpdatesAndNotify();
 
   setInterval(() => {
