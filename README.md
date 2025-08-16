@@ -104,4 +104,4 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ![Works on my machine](https://github.com/user-attachments/assets/ec187cfa-001a-4ced-9f91-0bf0fb977f34)
 
 
-*Built with ❤️ by ![Das_F1sHy312](https://github.com/f1shyondrugs)*
+*Built with ❤️ by [Das_F1sHy312](https://github.com/f1shyondrugs)*
