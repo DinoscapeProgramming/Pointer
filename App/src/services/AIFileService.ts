@@ -605,7 +605,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
   // Get the appropriate model ID for the given purpose
   static async getModelIdForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<string> {
     // Use a fallback model that likely exists in the user's system
-    const fallbackModel = 'Error occured while getting the model ID';
+    const fallbackModel = 'deepseek-coder-v2-lite-instruct';
     let modelId = fallbackModel;
     
     try {
@@ -615,11 +615,54 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
         const assignedModelId = settingsResult.settings.modelAssignments[purpose];
-        if (settingsResult.settings.models[assignedModelId] && settingsResult.settings.models[assignedModelId].id) {
-          modelId = settingsResult.settings.models[assignedModelId].id;
-          console.log(`Using configured model ID for ${purpose}: ${modelId}`);
+        if (settingsResult.settings.models[assignedModelId]) {
+          const modelConfig = settingsResult.settings.models[assignedModelId];
+          
+          // If model ID is empty or undefined, try to discover available models
+          if (!modelConfig.id || modelConfig.id.trim() === '') {
+            if (modelConfig.apiEndpoint) {
+              try {
+                // Import the service dynamically to avoid circular dependencies
+                const { ModelDiscoveryService } = await import('./ModelDiscoveryService');
+                const availableModels = await ModelDiscoveryService.getAvailableModels(
+                  modelConfig.apiEndpoint, 
+                  modelConfig.apiKey
+                );
+                
+                if (availableModels.length > 0) {
+                  // Use the first available model
+                  modelId = availableModels[0].id;
+                  console.log(`No model ID configured, using first discovered model for ${purpose}: ${modelId}`);
+                  
+                  // Update the settings with the discovered model ID
+                  try {
+                    const currentSettings = await FileSystemService.readSettingsFiles(settingsPath);
+                    if (currentSettings.success && currentSettings.settings.models) {
+                      currentSettings.settings.models[assignedModelId].id = modelId;
+                      await FileSystemService.writeSettingsFiles(settingsPath, currentSettings.settings);
+                      console.log(`Updated settings with discovered model ID: ${modelId}`);
+                    }
+                  } catch (updateError) {
+                    console.warn('Failed to update settings with discovered model ID:', updateError);
+                  }
+                } else {
+                  console.log(`No models discovered, using fallback: ${fallbackModel}`);
+                  modelId = fallbackModel;
+                }
+              } catch (discoveryError) {
+                console.warn(`Failed to discover models for ${purpose}:`, discoveryError);
+                modelId = fallbackModel;
+              }
+            } else {
+              console.log(`No API endpoint configured, using fallback: ${fallbackModel}`);
+              modelId = fallbackModel;
+            }
+          } else {
+            modelId = modelConfig.id;
+            console.log(`Using configured model ID for ${purpose}: ${modelId}`);
+          }
         } else {
-          console.log(`Model assignment found for ${purpose}, but no valid model ID, using fallback: ${fallbackModel}`);
+          console.log(`Model assignment found for ${purpose}, but no valid model config, using fallback: ${fallbackModel}`);
         }
       } else {
         // Fall back to localStorage
@@ -640,6 +683,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
               }
             } else {
               console.log(`No valid model ID in localStorage, using fallback: ${fallbackModel}`);
+              modelId = fallbackModel;
             }
           } catch (parseError) {
             console.error(`Error parsing localStorage modelConfig: ${parseError}`);
@@ -654,8 +698,8 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
       console.log(`Using fallback model due to error: ${fallbackModel}`);
     }
 
-    // Final safety check to ensure we never return an empty or "default-model" string
-    if (!modelId || modelId === 'default-model' || modelId.trim() === '') {
+    // Final safety check to ensure we never return an empty string
+    if (!modelId || modelId.trim() === '') {
       console.log(`Invalid model ID detected (${modelId}), using fallback: ${fallbackModel}`);
       return fallbackModel;
     }

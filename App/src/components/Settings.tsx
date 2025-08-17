@@ -5,6 +5,7 @@ import * as monaco from 'monaco-editor';
 import ColorInput from './ColorInput';
 import { presetThemes } from '../themes/presetThemes';
 import { PathConfig } from '../config/paths';
+import { ModelDiscoveryService, ModelInfo } from '../services/ModelDiscoveryService';
 // Add electron API import with proper typing
 // @ts-ignore
 const electron = window.require ? window.require('electron') : null;
@@ -67,7 +68,7 @@ interface SettingsProps {
 }
 
 const defaultConfig: ModelConfig = {
-  id: 'deepseek-coder-v2-lite-instruct',
+  id: '', // Allow empty model ID for automatic discovery
   name: 'Default Model',
   temperature: 0.7,
   maxTokens: null,
@@ -511,6 +512,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
   const [isThemeLibraryVisible, setIsThemeLibraryVisible] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [showModelSuggestions, setShowModelSuggestions] = useState(false);
+  const [filteredModels, setFilteredModels] = useState<ModelInfo[]>([]);
 
   useEffect(() => {
     if (isVisible) {
@@ -529,6 +534,15 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
           }
           await loadAllSettings();
           await checkAuthStatus();
+          
+          // Auto-discover models for configurations with empty model IDs when settings are opened
+          for (const [key, modelConfig] of Object.entries(modelConfigs)) {
+            if ((!modelConfig.id || modelConfig.id.trim() === '') && modelConfig.apiEndpoint) {
+              // Discover models in the background
+              fetchAvailableModels(modelConfig.apiEndpoint, modelConfig.apiKey);
+              break; // Only discover for one config to avoid overwhelming the API
+            }
+          }
         } catch (error) {
           console.error('Error during settings sync:', error);
         } finally {
@@ -641,6 +655,15 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             ...prev,
             ...validatedModels
           }));
+          
+          // Auto-discover models for configurations with empty model IDs
+          for (const [key, modelConfig] of Object.entries(validatedModels)) {
+            if ((!modelConfig.id || modelConfig.id.trim() === '') && modelConfig.apiEndpoint) {
+              // Discover models in the background
+              fetchAvailableModels(modelConfig.apiEndpoint, modelConfig.apiKey);
+              break; // Only discover for one config to avoid overwhelming the API
+            }
+          }
         }
         if (result.settings.modelAssignments) {
           const assignments = { ...defaultModelAssignments };
@@ -716,6 +739,15 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       const result = await FileSystemService.saveSettingsFiles(settingsPath, settings);
       if (result.success) {
         console.log('Settings saved successfully');
+        
+        // Auto-discover models for configurations with empty model IDs after saving
+        for (const [key, modelConfig] of Object.entries(modelConfigs)) {
+          if ((!modelConfig.id || modelConfig.id.trim() === '') && modelConfig.apiEndpoint) {
+            // Discover models in the background
+            fetchAvailableModels(modelConfig.apiEndpoint, modelConfig.apiKey);
+            break; // Only discover for one config to avoid overwhelming the API
+          }
+        }
       } else {
         console.error('Failed to save settings');
       }
@@ -770,6 +802,34 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     applyThemeSettings();
   }, [themeSettings]);
 
+  // Auto-discover models when active tab changes
+  useEffect(() => {
+    if (activeTab && modelConfigs[activeTab]) {
+      const config = modelConfigs[activeTab];
+      if ((!config.id || config.id.trim() === '') && config.apiEndpoint) {
+        // Discover models in the background
+        fetchAvailableModels(config.apiEndpoint, config.apiKey);
+      }
+    }
+  }, [activeTab, modelConfigs]);
+
+  // Close model suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showModelSuggestions) {
+        const target = event.target as Element;
+        if (!target.closest('.model-id-container')) {
+          setShowModelSuggestions(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showModelSuggestions]);
+
   const handleModelConfigChange = (modelId: string, field: keyof ModelConfig, value: any) => {
     setModelConfigs(prev => ({
       ...prev,
@@ -783,6 +843,104 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     // Save settings immediately when API key changes
     if (field === 'apiKey') {
       handleTogglePasswordVisibility();
+    }
+    
+    // Auto-discover models when provider changes (if no model ID is set)
+    if (field === 'modelProvider' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId].apiKey);
+    }
+    
+    // Auto-discover models when API endpoint changes (if no model ID is set)
+    if (field === 'apiEndpoint' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiKey) {
+      fetchAvailableModels(value, modelConfigs[modelId].apiKey);
+    }
+    
+    // Auto-discover models when API key changes (if no model ID is set)
+    if (field === 'apiKey' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, value);
+    }
+    
+    // Auto-discover models when model name changes (if no model ID is set)
+    if (field === 'name' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model purpose changes (if no model ID is set)
+    if (field === 'purpose' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model temperature changes (if no model ID is set)
+    if (field === 'temperature' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model maxTokens changes (if no model ID is set)
+    if (field === 'maxTokens' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model topP changes (if no model ID is set)
+    if (field === 'topP' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model frequencyPenalty changes (if no model ID is set)
+    if (field === 'frequencyPenalty' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model presencePenalty changes (if no model ID is set)
+    if (field === 'presencePenalty' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model systemPrompt changes (if no model ID is set)
+    if (field === 'systemPrompt' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model contextLength changes (if no model ID is set)
+    if (field === 'contextLength' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model stopSequences changes (if no model ID is set)
+    if (field === 'stopSequences' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
+    }
+    
+    // Auto-discover models when model purpose changes (if no model ID is set)
+    if (field === 'purpose' && value && 
+        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
+        modelConfigs[modelId]?.apiEndpoint) {
+      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
     }
   };
 
@@ -846,7 +1004,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       ...prev,
       [newId]: { 
         ...defaultConfig, 
-        id: newId,
+        id: '', // Start with empty model ID for auto-discovery
         name: `Custom Model ${Object.keys(modelConfigs).length}` 
       }
     }));
@@ -866,6 +1024,48 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     });
 
     setActiveTab('default');
+  };
+
+  const fetchAvailableModels = async (apiEndpoint: string, apiKey?: string) => {
+    if (!apiEndpoint) return;
+    
+    setIsLoadingModels(true);
+    try {
+      const models = await ModelDiscoveryService.getAvailableModels(apiEndpoint, apiKey);
+      setAvailableModels(models);
+    } catch (error) {
+      console.error('Failed to fetch available models:', error);
+      setAvailableModels([]);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const handleModelIdInputChange = (modelId: string, field: keyof ModelConfig, value: string) => {
+    handleModelConfigChange(modelId, field, value);
+    
+    // Filter models for autocomplete
+    if (field === 'id' && value && availableModels.length > 0) {
+      const filtered = availableModels.filter(model => 
+        model.id.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredModels(filtered);
+      setShowModelSuggestions(filtered.length > 0);
+    } else {
+      setShowModelSuggestions(false);
+    }
+  };
+
+  const handleModelIdFocus = async (modelId: string) => {
+    const config = modelConfigs[modelId];
+    if (config?.apiEndpoint && availableModels.length === 0) {
+      await fetchAvailableModels(config.apiEndpoint, config.apiKey);
+    }
+  };
+
+  const selectModelSuggestion = (modelId: string, selectedModel: ModelInfo) => {
+    handleModelConfigChange(modelId, 'id', selectedModel.id);
+    setShowModelSuggestions(false);
   };
 
   const handleClose = () => {
@@ -1336,22 +1536,78 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
                               Model ID
                             </label>
-                            <input
-                              type="text"
-                              value={modelConfigs[activeTab].id || modelConfigs[activeTab].name}
-                              onChange={(e) => handleModelConfigChange(activeTab, 'id', e.target.value)}
-                              style={{
-                                width: '100%',
-                                padding: '8px',
-                                background: 'var(--bg-secondary)',
-                                border: '1px solid var(--border-primary)',
-                                borderRadius: '4px',
-                                color: 'var(--text-primary)',
-                              }}
-                              placeholder="Enter the model ID (e.g., 'gpt-4', 'llama3-8b-instruct')"
-                            />
+                            <div style={{ position: 'relative' }} className="model-id-container">
+                              <input
+                                type="text"
+                                value={modelConfigs[activeTab].id || ''}
+                                onChange={(e) => handleModelIdInputChange(activeTab, 'id', e.target.value)}
+                                onFocus={() => handleModelIdFocus(activeTab)}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px',
+                                  background: 'var(--bg-secondary)',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: '4px',
+                                  color: 'var(--text-primary)',
+                                }}
+                                placeholder="Enter the model ID"
+                              />
+                              {isLoadingModels && (
+                                <div style={{
+                                  position: 'absolute',
+                                  right: '8px',
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
+                                  fontSize: '12px',
+                                  color: 'var(--text-secondary)'
+                                }}>
+                                  Loading...
+                                </div>
+                              )}
+                              {showModelSuggestions && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  background: 'var(--bg-primary)',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: '4px',
+                                  maxHeight: '200px',
+                                  overflowY: 'auto',
+                                  zIndex: 1000,
+                                  boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
+                                }}>
+                                  {filteredModels.map((model, index) => (
+                                    <div
+                                      key={model.id}
+                                      onClick={() => selectModelSuggestion(activeTab, model)}
+                                      style={{
+                                        padding: '8px 12px',
+                                        cursor: 'pointer',
+                                        borderBottom: index < filteredModels.length - 1 ? '1px solid var(--border-primary)' : 'none',
+                                        ':hover': {
+                                          background: 'var(--bg-hover)'
+                                        }
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'var(--bg-hover)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'var(--bg-primary)';
+                                      }}
+                                    >
+                                      <div style={{ fontWeight: 'bold' }}>{model.id}</div>
+                                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                        {model.owned_by}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                              Enter any model ID supported by your provider. Common examples: deepseek-coder-v2-lite-instruct, llama3-8b-instruct, gpt-4
+
                             </p>
                           </div>
                         </div>
@@ -1363,7 +1619,16 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             </label>
                             <select
                               value={modelConfigs[activeTab].modelProvider || 'local'}
-                              onChange={(e) => handleModelConfigChange(activeTab, 'modelProvider', e.target.value)}
+                              onChange={async (e) => {
+                                const newProvider = e.target.value;
+                                handleModelConfigChange(activeTab, 'modelProvider', newProvider);
+                                
+                                // Auto-discover models when provider changes (if no model ID is set)
+                                if (newProvider && modelConfigs[activeTab].apiEndpoint && 
+                                    (!modelConfigs[activeTab].id || modelConfigs[activeTab].id.trim() === '')) {
+                                  await fetchAvailableModels(modelConfigs[activeTab].apiEndpoint, modelConfigs[activeTab].apiKey);
+                                }
+                              }}
                               style={{
                                 width: '100%',
                                 padding: '8px',
@@ -1385,7 +1650,15 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             <input
                               type="text"
                               value={modelConfigs[activeTab].apiEndpoint || ''}
-                              onChange={(e) => handleModelConfigChange(activeTab, 'apiEndpoint', e.target.value)}
+                              onChange={async (e) => {
+                                const newEndpoint = e.target.value;
+                                handleModelConfigChange(activeTab, 'apiEndpoint', newEndpoint);
+                                
+                                // Auto-discover models when endpoint changes (if no model ID is set)
+                                if (newEndpoint && (!modelConfigs[activeTab].id || modelConfigs[activeTab].id.trim() === '')) {
+                                  await fetchAvailableModels(newEndpoint, modelConfigs[activeTab].apiKey);
+                                }
+                              }}
                               style={{
                                 width: '100%',
                                 padding: '8px',
@@ -1406,7 +1679,15 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             </label>
                             <PasswordInput
                               value={modelConfigs[activeTab].apiKey || ''}
-                              onChange={(value) => handleModelConfigChange(activeTab, 'apiKey', value)}
+                              onChange={async (value) => {
+                                handleModelConfigChange(activeTab, 'apiKey', value);
+                                
+                                // Auto-discover models when API key changes (if no model ID is set)
+                                if (value && modelConfigs[activeTab].apiEndpoint && 
+                                    (!modelConfigs[activeTab].id || modelConfigs[activeTab].id.trim() === '')) {
+                                  await fetchAvailableModels(modelConfigs[activeTab].apiEndpoint, value);
+                                }
+                              }}
                               placeholder="Enter your OpenAI API key"
                               showPassword={showPassword}
                               onToggleVisibility={handleTogglePasswordVisibility}
