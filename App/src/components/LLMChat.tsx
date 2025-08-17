@@ -43,6 +43,7 @@ declare global {
   lastSavedMessageCount?: number; // Track the number of messages saved
   highestMessageId?: number; // Track the highest message ID we've seen
   handleFileSelect?: (fileId: string) => void;
+  electronAPI?: import('../types').ElectronAPI;
 }
 }
 
@@ -774,6 +775,41 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                   {children}
                 </li>
               ),
+              a: ({ href, children, ...props }) => {
+                const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
+                
+                return (
+                  <a
+                    href={href}
+                    target={isExternalLink ? '_blank' : undefined}
+                    rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                    style={{
+                      color: 'var(--accent-color)',
+                      textDecoration: 'none',
+                      borderBottom: '1px solid var(--accent-color)',
+                      transition: 'all 0.2s ease',
+                      padding: '1px 2px',
+                      borderRadius: '3px',
+                      background: 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isExternalLink) {
+                        e.currentTarget.style.background = 'var(--accent-color)';
+                        e.currentTarget.style.color = 'var(--bg-primary)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (isExternalLink) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--accent-color)';
+                      }
+                    }}
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                );
+              },
               code({ className, children, ...props }: CodeProps) {
                 let content = String(children).replace(/\n$/, '');
                 
@@ -929,6 +965,41 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                     {children}
                   </li>
                 ),
+                a: ({ href, children, ...props }) => {
+                  const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
+                  
+                  return (
+                    <a
+                      href={href}
+                      target={isExternalLink ? '_blank' : undefined}
+                      rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                      style={{
+                        color: 'var(--accent-color)',
+                        textDecoration: 'none',
+                        borderBottom: '1px solid var(--accent-color)',
+                        transition: 'all 0.2s ease',
+                        padding: '1px 2px',
+                        borderRadius: '3px',
+                        background: 'transparent',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'var(--accent-color)';
+                          e.currentTarget.style.color = 'var(--bg-primary)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--accent-color)';
+                        }
+                      }}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  );
+                },
                 code({ inline, className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
 
@@ -1093,6 +1164,41 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                 {children}
               </li>
             ),
+            a: ({ href, children, ...props }) => {
+              const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
+              
+              return (
+                <a
+                  href={href}
+                  target={isExternalLink ? '_blank' : undefined}
+                  rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                  style={{
+                    color: 'var(--accent-color)',
+                    textDecoration: 'none',
+                    borderBottom: '1px solid var(--accent-color)',
+                    transition: 'all 0.2s ease',
+                    padding: '1px 2px',
+                    borderRadius: '3px',
+                    background: 'transparent',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isExternalLink) {
+                      e.currentTarget.style.background = 'var(--accent-color)';
+                      e.currentTarget.style.color = 'var(--bg-primary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isExternalLink) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = 'var(--accent-color)';
+                    }
+                  }}
+                  {...props}
+                >
+                  {children}
+                </a>
+              );
+            },
             code({ inline, className, children, ...props }: CodeProps) {
               let content = String(children).replace(/\n$/, '');
 
@@ -1265,6 +1371,41 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                     {children}
                   </li>
                 ),
+                a: ({ href, children, ...props }) => {
+                  const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
+                  
+                  return (
+                    <a
+                      href={href}
+                      target={isExternalLink ? '_blank' : undefined}
+                      rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                      style={{
+                        color: 'var(--accent-color)',
+                        textDecoration: 'none',
+                        borderBottom: '1px solid var(--accent-color)',
+                        transition: 'all 0.2s ease',
+                        padding: '1px 2px',
+                        borderRadius: '3px',
+                        background: 'transparent',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'var(--accent-color)';
+                          e.currentTarget.style.color = 'var(--bg-primary)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--accent-color)';
+                        }
+                      }}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  );
+                },
                 code({ className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
                   

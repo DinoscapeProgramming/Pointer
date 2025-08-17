@@ -430,6 +430,20 @@ async function createWindow() {
       console.log('Main window dom-ready');
     });
 
+    // Handle external links - open them in the default browser
+    mainWindow.webContents.on('new-window', (event, navigationUrl) => {
+      event.preventDefault();
+      const { shell } = require('electron');
+      shell.openExternal(navigationUrl);
+    });
+
+    // Handle link clicks within the app
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      const { shell } = require('electron');
+      shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
     // Set the app user model ID for Windows
     if (process.platform === 'win32') {
       app.setAppUserModelId('com.pointer');
@@ -749,6 +763,18 @@ ipcMain.handle('open-in-explorer', async (event, filePath) => {
     return { success: true };
   } catch (error) {
     console.error('Error opening in explorer:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Open external links in default browser
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    const { shell } = require('electron');
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening external link:', error);
     return { success: false, error: error.message };
   }
 });

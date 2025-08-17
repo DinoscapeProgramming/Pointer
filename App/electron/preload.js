@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld(
     // File system operations
     openInExplorer: (filePath) => {
       return ipcRenderer.invoke('open-in-explorer', filePath);
+    },
+    // External link handling
+    openExternal: (url) => {
+      return ipcRenderer.invoke('open-external', url);
     }
   }
 );

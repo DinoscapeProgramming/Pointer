@@ -1,3 +1,21 @@
+// Electron API interface
+export interface ElectronAPI {
+  window: {
+    minimize: () => void;
+    maximize: () => void;
+    close: () => void;
+    isMaximized: () => Promise<boolean>;
+  };
+  send: (channel: string, data: any) => void;
+  receive: (channel: string, func: (...args: any[]) => void) => void;
+  discord: {
+    updateEditorInfo: (info: any) => void;
+    updateSettings: (settings: any) => void;
+  };
+  openInExplorer: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+}
+
 export interface FileSystemItem {
   id: string;
   name: string;

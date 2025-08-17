@@ -98,6 +98,63 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Enhanced link styling for chat messages */
+.message-content a {
+  color: var(--accent-color);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-color);
+  transition: all 0.2s ease;
+  padding: 1px 2px;
+  border-radius: 3px;
+  background: transparent;
+  position: relative;
+}
+
+.message-content a:hover {
+  background: var(--accent-color);
+  color: var(--bg-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* External link indicator */
+.message-content a[href^="http"]::after {
+  content: '↗';
+  margin-left: 4px;
+  font-size: 0.75em;
+  opacity: 0.8;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  color: var(--accent-color);
+}
+
+.message-content a[href^="http"]:hover::after {
+  opacity: 1;
+  transform: translate(1px, -1px);
+  color: var(--bg-primary);
+}
+
+/* Special styling for different link types */
+.message-content a[href*="github.com"]::after {
+  content: '🐙';
+  font-size: 0.9em;
+}
+
+.message-content a[href*="stackoverflow.com"]::after {
+  content: '📚';
+  font-size: 0.9em;
+}
+
+.message-content a[href*="docs"]::after {
+  content: '📖';
+  font-size: 0.9em;
+}
+
+.message-content a[href*="api"]::after {
+  content: '🔌';
+  font-size: 0.9em;
+}
+
 .relevant-files-container:hover {
   border-color: var(--accent-color) !important;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);

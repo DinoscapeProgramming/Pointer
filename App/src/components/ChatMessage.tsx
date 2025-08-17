@@ -55,6 +55,54 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
             </code>
           );
         },
+                        a: ({ href, children, ...props }) => {
+                  const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
+                  
+                  const handleClick = (e: React.MouseEvent) => {
+                    if (isExternalLink) {
+                      e.preventDefault();
+                      // Use the Electron shell API if available, otherwise fallback to window.open
+                      if (window.electronAPI && window.electronAPI.openExternal) {
+                        window.electronAPI.openExternal(href);
+                      } else {
+                        window.open(href, '_blank', 'noopener,noreferrer');
+                      }
+                    }
+                  };
+                  
+                  return (
+                    <a
+                      href={href}
+                      target={isExternalLink ? '_blank' : undefined}
+                      rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                      style={{
+                        color: 'var(--accent-color)',
+                        textDecoration: 'none',
+                        borderBottom: '1px solid var(--accent-color)',
+                        transition: 'all 0.2s ease',
+                        padding: '1px 2px',
+                        borderRadius: '3px',
+                        background: 'transparent',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'var(--accent-color)';
+                          e.currentTarget.style.color = 'var(--bg-primary)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (isExternalLink) {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--accent-color)';
+                        }
+                      }}
+                      onClick={handleClick}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  );
+                },
       }}
     >
       {content}
