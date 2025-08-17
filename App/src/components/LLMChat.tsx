@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import lmStudio from '../services/LMStudioService';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -742,6 +743,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
             </div>
           )}
           <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
             components={{
               p: ({ children, ...props }) => {
                 const hasCodeBlock = React.Children.toArray(children).some(
@@ -810,6 +812,94 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                   </a>
                 );
               },
+              // Strikethrough support
+              del: ({ children, ...props }) => (
+                <del style={{
+                  textDecoration: 'line-through',
+                  color: 'var(--text-secondary)',
+                  opacity: 0.8
+                }} {...props}>
+                  {children}
+                </del>
+              ),
+              // Blockquote support
+              blockquote: ({ children, ...props }) => (
+                <blockquote style={{
+                  borderLeft: '4px solid var(--accent-color)',
+                  margin: '16px 0',
+                  padding: '8px 16px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '4px',
+                  fontStyle: 'italic',
+                  color: 'var(--text-secondary)'
+                }} {...props}>
+                  {children}
+                </blockquote>
+              ),
+              // Table support
+              table: ({ children, ...props }) => (
+                <div style={{ overflowX: 'auto', margin: '16px 0' }}>
+                  <table style={{
+                    borderCollapse: 'collapse',
+                    width: '100%',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px'
+                  }} {...props}>
+                    {children}
+                  </table>
+                </div>
+              ),
+              thead: ({ children, ...props }) => (
+                <thead style={{
+                  background: 'var(--bg-secondary)',
+                  borderBottom: '2px solid var(--border-color)'
+                }} {...props}>
+                  {children}
+                </thead>
+              ),
+              tbody: ({ children, ...props }) => (
+                <tbody {...props}>
+                  {children}
+                </tbody>
+              ),
+              tr: ({ children, ...props }) => (
+                <tr style={{
+                  borderBottom: '1px solid var(--border-color)'
+                }} {...props}>
+                  {children}
+                </tr>
+              ),
+              th: ({ children, ...props }) => (
+                <th style={{
+                  padding: '8px 12px',
+                  textAlign: 'left',
+                  fontWeight: 'bold',
+                  color: 'var(--text-primary)',
+                  borderRight: '1px solid var(--border-color)'
+                }} {...props}>
+                  {children}
+                </th>
+              ),
+              td: ({ children, ...props }) => (
+                <td style={{
+                  padding: '8px 12px',
+                  borderRight: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)'
+                }} {...props}>
+                  {children}
+                </td>
+              ),
+              // Horizontal rule with better margins
+              hr: ({ ...props }) => (
+                <hr style={{
+                  border: 'none',
+                  height: '2px',
+                  background: 'var(--border-color, #444)',
+                  margin: '24px 0',
+                  borderRadius: '1px',
+                  opacity: 0.8
+                }} {...props} />
+              ),
               code({ className, children, ...props }: CodeProps) {
                 let content = String(children).replace(/\n$/, '');
                 
@@ -932,6 +1022,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
               </div>
             )}
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children, ...props }) => {
                   const hasCodeBlock = React.Children.toArray(children).some(
@@ -1000,6 +1091,94 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                     </a>
                   );
                 },
+                // Strikethrough support
+                del: ({ children, ...props }) => (
+                  <del style={{
+                    textDecoration: 'line-through',
+                    color: 'var(--text-secondary)',
+                    opacity: 0.8
+                  }} {...props}>
+                    {children}
+                  </del>
+                ),
+                // Blockquote support
+                blockquote: ({ children, ...props }) => (
+                  <blockquote style={{
+                    borderLeft: '4px solid var(--accent-color)',
+                    margin: '16px 0',
+                    padding: '8px 16px',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '4px',
+                    fontStyle: 'italic',
+                    color: 'var(--text-secondary)'
+                  }} {...props}>
+                    {children}
+                  </blockquote>
+                ),
+                // Table support
+                table: ({ children, ...props }) => (
+                  <div style={{ overflowX: 'auto', margin: '16px 0' }}>
+                    <table style={{
+                      borderCollapse: 'collapse',
+                      width: '100%',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '4px'
+                    }} {...props}>
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children, ...props }) => (
+                  <thead style={{
+                    background: 'var(--bg-secondary)',
+                    borderBottom: '2px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </thead>
+                ),
+                tbody: ({ children, ...props }) => (
+                  <tbody {...props}>
+                    {children}
+                  </tbody>
+                ),
+                tr: ({ children, ...props }) => (
+                  <tr style={{
+                    borderBottom: '1px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </tr>
+                ),
+                th: ({ children, ...props }) => (
+                  <th style={{
+                    padding: '8px 12px',
+                    textAlign: 'left',
+                    fontWeight: 'bold',
+                    color: 'var(--text-primary)',
+                    borderRight: '1px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </th>
+                ),
+                td: ({ children, ...props }) => (
+                  <td style={{
+                    padding: '8px 12px',
+                    borderRight: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }} {...props}>
+                    {children}
+                  </td>
+                ),
+                // Horizontal rule with better margins
+                hr: ({ ...props }) => (
+                  <hr style={{
+                    border: 'none',
+                    height: '2px',
+                    background: 'var(--border-color, #444)',
+                    margin: '24px 0',
+                    borderRadius: '1px',
+                    opacity: 0.8
+                  }} {...props} />
+                ),
                 code({ inline, className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
 
@@ -1131,6 +1310,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
         )}
         
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
             p: ({ children, ...props }) => {
               const hasCodeBlock = React.Children.toArray(children).some(
@@ -1199,6 +1379,94 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                 </a>
               );
             },
+            // Strikethrough support
+            del: ({ children, ...props }) => (
+              <del style={{
+                textDecoration: 'line-through',
+                color: 'var(--text-secondary)',
+                opacity: 0.8
+              }} {...props}>
+                {children}
+              </del>
+            ),
+            // Blockquote support
+            blockquote: ({ children, ...props }) => (
+              <blockquote style={{
+                borderLeft: '4px solid var(--accent-color)',
+                margin: '16px 0',
+                padding: '8px 16px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '4px',
+                fontStyle: 'italic',
+                color: 'var(--text-secondary)'
+              }} {...props}>
+                {children}
+              </blockquote>
+            ),
+            // Table support
+            table: ({ children, ...props }) => (
+              <div style={{ overflowX: 'auto', margin: '16px 0' }}>
+                <table style={{
+                  borderCollapse: 'collapse',
+                  width: '100%',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '4px'
+                }} {...props}>
+                  {children}
+                </table>
+              </div>
+            ),
+            thead: ({ children, ...props }) => (
+              <thead style={{
+                background: 'var(--bg-secondary)',
+                borderBottom: '2px solid var(--border-color)'
+              }} {...props}>
+                {children}
+              </thead>
+            ),
+            tbody: ({ children, ...props }) => (
+              <tbody {...props}>
+                {children}
+              </tbody>
+            ),
+            tr: ({ children, ...props }) => (
+              <tr style={{
+                borderBottom: '1px solid var(--border-color)'
+              }} {...props}>
+                {children}
+              </tr>
+            ),
+            th: ({ children, ...props }) => (
+              <th style={{
+                padding: '8px 12px',
+                textAlign: 'left',
+                fontWeight: 'bold',
+                color: 'var(--text-primary)',
+                borderRight: '1px solid var(--border-color)'
+              }} {...props}>
+                {children}
+              </th>
+            ),
+            td: ({ children, ...props }) => (
+              <td style={{
+                padding: '8px 12px',
+                borderRight: '1px solid var(--border-color)',
+                color: 'var(--text-primary)'
+              }} {...props}>
+                {children}
+              </td>
+            ),
+            // Horizontal rule with better margins
+            hr: ({ ...props }) => (
+              <hr style={{
+                border: 'none',
+                height: '2px',
+                background: 'var(--border-color, #444)',
+                margin: '24px 0',
+                borderRadius: '1px',
+                opacity: 0.8
+              }} {...props} />
+            ),
             code({ inline, className, children, ...props }: CodeProps) {
               let content = String(children).replace(/\n$/, '');
 
@@ -1338,6 +1606,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
             )}
             
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children, ...props }) => {
                   const hasCodeBlock = React.Children.toArray(children).some(
@@ -1406,6 +1675,94 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
                     </a>
                   );
                 },
+                // Strikethrough support
+                del: ({ children, ...props }) => (
+                  <del style={{
+                    textDecoration: 'line-through',
+                    color: 'var(--text-secondary)',
+                    opacity: 0.8
+                  }} {...props}>
+                    {children}
+                  </del>
+                ),
+                // Blockquote support
+                blockquote: ({ children, ...props }) => (
+                  <blockquote style={{
+                    borderLeft: '4px solid var(--accent-color)',
+                    margin: '16px 0',
+                    padding: '8px 16px',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '4px',
+                    fontStyle: 'italic',
+                    color: 'var(--text-secondary)'
+                  }} {...props}>
+                    {children}
+                  </blockquote>
+                ),
+                // Table support
+                table: ({ children, ...props }) => (
+                  <div style={{ overflowX: 'auto', margin: '16px 0' }}>
+                    <table style={{
+                      borderCollapse: 'collapse',
+                      width: '100%',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '4px'
+                    }} {...props}>
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children, ...props }) => (
+                  <thead style={{
+                    background: 'var(--bg-secondary)',
+                    borderBottom: '2px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </thead>
+                ),
+                tbody: ({ children, ...props }) => (
+                  <tbody {...props}>
+                    {children}
+                  </tbody>
+                ),
+                tr: ({ children, ...props }) => (
+                  <tr style={{
+                    borderBottom: '1px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </tr>
+                ),
+                th: ({ children, ...props }) => (
+                  <th style={{
+                    padding: '8px 12px',
+                    textAlign: 'left',
+                    fontWeight: 'bold',
+                    color: 'var(--text-primary)',
+                    borderRight: '1px solid var(--border-color)'
+                  }} {...props}>
+                    {children}
+                  </th>
+                ),
+                td: ({ children, ...props }) => (
+                  <td style={{
+                    padding: '8px 12px',
+                    borderRight: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }} {...props}>
+                    {children}
+                  </td>
+                ),
+                // Horizontal rule with better margins
+                hr: ({ ...props }) => (
+                  <hr style={{
+                    border: 'none',
+                    height: '2px',
+                    background: 'var(--border-color, #444)',
+                    margin: '24px 0',
+                    borderRadius: '1px',
+                    opacity: 0.8
+                  }} {...props} />
+                ),
                 code({ className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
                   
