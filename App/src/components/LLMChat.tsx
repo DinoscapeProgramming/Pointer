@@ -31,6 +31,7 @@ import {
 import { CodebaseContextService } from '../services/CodebaseContextService';
 import { stripThinkTags, extractCodeBlocks } from '../utils/textUtils';
 import { resizePerformanceMonitor } from '../utils/performance';
+import { ChatService } from '../services/ChatService';
 
 // Add TypeScript declarations for window properties
 declare global {
@@ -851,7 +852,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
               }
             }}
           >
-            {parts[0]}
+            {messageContent}
           </ReactMarkdown>
         </div>
       );
@@ -1168,7 +1169,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
             }
           }}
         >
-          {messageContent}
+          {parts[0]}
         </ReactMarkdown>
       </div>
     );
@@ -2141,325 +2142,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
-      // For important save operations (user messages, AI completions, tool calls), always save
-      // regardless of timing
-      const now = Date.now();
-      const lastSaveTime = window.lastSaveChatTime || 0;
-      const timeSinceLastSave = now - lastSaveTime;
+      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
       
-      // Skip very frequent saves only for streaming incremental updates
-      // For important operations (reloadAfterSave=true), always save
-      if (timeSinceLastSave < 100 && !reloadAfterSave) {
-        console.log(`Skipping incremental save - too soon after previous save (${timeSinceLastSave}ms)`);
-        return;
-      }
+      // Use the simplified ChatService
+      const success = await ChatService.saveChat(chatId, messages);
       
-      console.log(`Saving chat with ${reloadAfterSave ? 'reload' : 'no reload'} - operation type: ${reloadAfterSave ? 'critical' : 'incremental'}`);
-      
-      // Increment the save version to track most recent save
-      window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-      const currentSaveVersion = window.chatSaveVersion;
-      
-      // Record that we're saving now
-      window.lastSaveChatTime = now;
-      
-      let title = chatTitle;
-      
-      // Filter out continuation system messages before saving
-      const filteredMessages = messages.filter((msg: ExtendedMessage) => {
-        // Keep the first system message (instructions) but filter out continuation prompts
-        if (msg.role === 'system') {
-          const isFirstSystemMessage = messages.findIndex(m => m.role === 'system') === messages.indexOf(msg);
-          const isContinuationPrompt = msg.content.includes("address the original question directly") || 
-                                      msg.content.includes("Be concise and address the original question");
-          return isFirstSystemMessage && !isContinuationPrompt;
-        }
-        return true;
-      });
-      
-      // Comprehensive deduplication system - prevents ALL duplications
-      const deduplicatedMessages: ExtendedMessage[] = [];
-      const messageSignatures = new Set<string>();
-      
-      // Generate comprehensive signature for a message that captures all uniqueness
-      const generateMessageSignature = (msg: ExtendedMessage): string => {
-        const parts: string[] = [
-          `role:${msg.role}`,
-          `content:${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`
-        ];
+      if (success) {
+        console.log(`Chat ${chatId} saved successfully`);
         
-        // Add message ID if present (highest priority)
-        if (msg.messageId !== undefined) {
-          parts.push(`messageId:${msg.messageId}`);
+        // Only reload if specifically requested
+        if (reloadAfterSave) {
+          setTimeout(() => {
+            loadChat(chatId, true);
+          }, 200);
         }
-        
-        // Add tool-related fields for complete tool message identification
-        if (msg.tool_call_id) {
-          parts.push(`tool_call_id:${msg.tool_call_id}`);
-        }
-        
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-          // Sort tool calls by ID to ensure consistent ordering
-          const sortedToolCalls = [...msg.tool_calls].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
-          const toolCallsStr = sortedToolCalls.map((tc: any) => {
-            const name = tc.function?.name ?? tc.name ?? '';
-            const args = tc.function?.arguments ?? tc.arguments ?? {};
-            const argsString = typeof args === 'string' ? args : JSON.stringify(args);
-            return `${tc.id}:${name}:${argsString}`;
-          }).join('|');
-          parts.push(`tool_calls:${toolCallsStr}`);
-        }
-        
-        // Add function call information if present (legacy support)
-        const legacyFunctionCall: any = (msg as any).function_call;
-        if (legacyFunctionCall) {
-          parts.push(`function_call:${JSON.stringify(legacyFunctionCall)}`);
-        }
-        
-        // Create a comprehensive hash-like signature
-        return parts.join('||');
-      };
-      
-      // Single-pass deduplication with complete duplicate prevention
-      for (const message of filteredMessages) {
-        const signature = generateMessageSignature(message);
-        
-        if (!messageSignatures.has(signature)) {
-          messageSignatures.add(signature);
-          deduplicatedMessages.push(message);
-          console.log(`Added unique message: ${message.role} (${signature.substring(0, 100)}...)`);
-          } else {
-          console.log(`Skipped duplicate message: ${message.role} (${signature.substring(0, 100)}...)`);
-        }
-      }
-      
-      console.log(`Comprehensive deduplication: ${filteredMessages.length} → ${deduplicatedMessages.length} messages (removed ${filteredMessages.length - deduplicatedMessages.length} duplicates)`);
-      
-      // Ensure every message carries a persisted ascending messageId
-      let maxExistingId = 0;
-      deduplicatedMessages.forEach(m => {
-        const n = Number(m.messageId);
-        if (Number.isFinite(n)) maxExistingId = Math.max(maxExistingId, n);
-      });
-      window.highestMessageId = Math.max(Number(window.highestMessageId || 0), maxExistingId);
-
-      const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
-        if (msg.messageId === undefined || msg.messageId === null || msg.messageId === '') {
-          msg.messageId = getNextMessageId();
-        }
-        const cleanedMsg: any = {
-          role: msg.role,
-          content: msg.content || '',
-          messageId: msg.messageId
-        };
-        // Do NOT include messageId in outgoing payload
-        if (msg.role === 'assistant' && typeof msg.content === 'string' && 
-            msg.content.includes('function_call:') && !msg.tool_calls) {
-          try {
-            console.log('Found function_call string in content during save, extracting...');
-            const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
-            if (functionCallMatch && functionCallMatch[1]) {
-              let functionCall: any;
-              try {
-                functionCall = JSON.parse(functionCallMatch[1]);
-              } catch (e) {
-                console.error('Error parsing function call JSON:', e);
-                // Robust fallback: extract balanced JSON object after "arguments":
-                const raw = functionCallMatch[1];
-                const idMatch = raw.match(/"id"\s*:\s*"([^\"]+)"/);
-                const nameMatch = raw.match(/"name"\s*:\s*"([^\"]+)"/);
-                let argsValue: string | null = null;
-                const argsIndex = raw.indexOf('"arguments"');
-                if (argsIndex >= 0) {
-                  const braceStart = raw.indexOf('{', argsIndex);
-                  const quoteStart = raw.indexOf('"', argsIndex);
-                  if (braceStart !== -1 && (quoteStart === -1 || braceStart < quoteStart)) {
-                    // Extract balanced braces
-                    let i = braceStart, depth = 0; let inStr = false; let prev = '';
-                    for (; i < raw.length; i++) {
-                      const ch = raw[i];
-                      if (inStr) {
-                        if (ch === '"' && prev !== '\\') inStr = false;
-                      } else {
-                        if (ch === '"') inStr = true;
-                        else if (ch === '{') depth++;
-                        else if (ch === '}') {
-                          depth--;
-                          if (depth === 0) { i++; break; }
-                        }
-                      }
-                      prev = ch;
-                    }
-                    const objStr = raw.slice(braceStart, i);
-                    argsValue = objStr;
-                  } else if (quoteStart !== -1) {
-                    // Quoted string argument
-                    const endQuote = raw.indexOf('"', quoteStart + 1);
-                    if (endQuote > quoteStart) argsValue = raw.slice(quoteStart, endQuote + 1);
-                  }
-                }
-                functionCall = {
-                  id: idMatch?.[1] || generateValidToolCallId(),
-                  name: nameMatch?.[1] || 'unknown_function',
-                  arguments: argsValue || '{}'
-                };
-              }
-              cleanedMsg.tool_calls = [{
-                id: functionCall.id || generateValidToolCallId(),
-                type: 'function',
-                function: {
-                  name: functionCall.name,
-                  arguments: (() => {
-                    try {
-                      if (typeof functionCall.arguments === 'string') {
-                        // If it's an object string, keep as-is; if it's already JSON, keep it
-                        return functionCall.arguments;
-                      }
-                      return JSON.stringify(functionCall.arguments);
-                    } catch {
-                      return typeof functionCall.arguments === 'string' ? functionCall.arguments : '{}';
-                    }
-                  })()
-                }
-              }];
-              cleanedMsg.content = '';
-              console.log('Converted function_call content to tool_calls for storage:', 
-                cleanedMsg.tool_calls[0].function.name);
-            }
-          } catch (e) {
-            console.error('Error handling function_call in content:', e);
-          }
-        }
-        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-          cleanedMsg.tool_calls = msg.tool_calls.map(tc => ({
-            id: tc.id || generateValidToolCallId(),
-            type: 'function',
-            function: {
-              name: tc.name,
-              arguments: typeof tc.arguments === 'string' ? 
-                tc.arguments : JSON.stringify(tc.arguments)
-            }
-          }));
-          if (!msg.content) {
-            cleanedMsg.content = '';
-          }
-          console.log(`Saving assistant with ${cleanedMsg.tool_calls.length} tool calls: ${
-            cleanedMsg.tool_calls.map((tc: any) => tc.function.name).join(', ')
-          }`);
-        }
-        if (msg.tool_call_id) {
-          cleanedMsg.tool_call_id = msg.tool_call_id;
-          console.log(`Saving tool response for call ID: ${msg.tool_call_id}`);
-        }
-        if (msg.attachments && msg.attachments.length > 0) {
-          cleanedMsg.attachments = msg.attachments;
-        }
-        return cleanedMsg;
-      });
-      
-      // Determine if this is an edit operation
-      const isEdit = editingMessageIndex !== null;
-      const editIndex = isEdit ? editingMessageIndex : -1;
-      
-      // For append operations, determine which messages are new
-      let messagesToSend = [];
-      
-      if (isEdit) {
-        // When editing, send all messages and mark as edit
-        // The backend will truncate at the edit point and append these messages
-        messagesToSend = messagesToSave;
-        console.log(`Editing message at index ${editIndex}, sending all ${messagesToSend.length} messages`);
       } else {
-        // SIMPLIFIED: Always send all messages and let the backend handle deduplication
-        // This eliminates complex count tracking that was causing conflicts
-        messagesToSend = messagesToSave;
-        console.log(`Sending all ${messagesToSend.length} messages to backend for append operation`);
-      }
-      
-      // First message should include chat title if available
-      if (messagesToSend.length > 0 && title) {
-        messagesToSend[0].name = title;
-      }
-      
-      // Update our message count tracker (simplified)
-      window.lastSavedMessageCount = deduplicatedMessages.length;
-      
-      // Prepare the request for our append-only backend
-      const chatData = {
-        messages: messagesToSend,
-        is_edit: isEdit,
-        edit_index: editIndex,
-        overwrite: false // Only use overwrite in special cases
-      };
-      
-      // DEBUG: Log what we're sending to backend
-      console.log(`=== SENDING TO BACKEND ===`);
-      console.log(`Chat ID: ${chatId}`);
-      console.log(`Messages to send: ${messagesToSend.length}`);
-      console.log(`is_edit: ${isEdit}`);
-      console.log(`edit_index: ${editIndex}`);
-      console.log(`overwrite: ${false}`);
-      
-      for (let i = 0; i < messagesToSend.length; i++) {
-        const msg = messagesToSend[i];
-        console.log(`  Sending message ${i}: role=${msg.role}, content_length=${msg.content?.length || 0}, content_preview='${msg.content?.substring(0, 100)}...'`);
-      }
-      console.log(`=== END SENDING TO BACKEND ===`);
-      
-      try {
-        // Use AbortController to set a timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-        
-        const saveResponse = await fetch(`http://localhost:23816/chats/${chatId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-          body: JSON.stringify(chatData),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!saveResponse.ok) {
-          throw new Error(`Failed to save chat: ${saveResponse.status} ${saveResponse.statusText}`);
-        }
-        
-        // Parse the response to get message count
-        const saveResult = await saveResponse.json();
-        
-        // Update our saved message count with the actual count from server
-        if (saveResult.message_count !== undefined) {
-          window.lastSavedMessageCount = saveResult.message_count;
-          console.log(`Updated lastSavedMessageCount to ${saveResult.message_count} from server response`);
-        }
-        
-        // Check if our save version is still the most recent
-        if (window.chatSaveVersion === currentSaveVersion) {
-          console.log(`Chat saved successfully (version: ${currentSaveVersion}, operation: ${isEdit ? 'edit' : 'append'})`);
-          
-          // Only reload in specific situations (tool calls, errors) to prevent flickering
-          if (reloadAfterSave) {
-            // Wait a brief moment to ensure the file is written
-            setTimeout(() => {
-              // Only reload if our version is still current
-              if (window.chatSaveVersion === currentSaveVersion) {
-                console.log(`Reloading chat after critical save operation`);
-                // Use a gentler reload that preserves scroll position and prevents flickering
-                loadChat(chatId, true);
-              }
-            }, 200); // Slightly longer delay to reduce visual disruption
-          }
-        } else {
-          console.log(`Skipping post-save actions - newer save version exists: ${window.chatSaveVersion} > ${currentSaveVersion}`);
-        }
-      } catch (error: any) {
-        if (error.name === 'AbortError') {
-          console.error('Save operation timed out after 10 seconds');
-        } else {
-          console.error('Error in fetch operation during chat save:', error);
-        }
+        console.error(`Failed to save chat ${chatId}`);
       }
     } catch (error) {
       console.error('Error in saveChat function:', error);
@@ -2468,235 +2166,54 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Load chat data with cache-busting
   const loadChat = async (chatId: string, forceReload = false) => {
-    // Fixed issue: Now we always respect forceReload parameter even during streaming
-    // Don't reload the chat if we're streaming a response, UNLESS a force reload is requested
-    if (isStreamingComplete === false && !forceReload) {
-      console.log('Skipping loadChat due to active streaming');
-      return;
-    }
-    
     try {
-      // Store current chat ID as a local variable
-      const currentId = chatId;
       setIsProcessing(true);
       
-      // Check if we need a full reload or just new messages
-      const shouldFetchAll = forceReload || !messages.length || !window.lastSavedMessageCount;
+      console.log(`Loading chat ${chatId} (forceReload: ${forceReload})`);
       
-      let url = `http://localhost:23816/chats/${chatId}`;
+      // Use the simplified ChatService
+      const chat = await ChatService.loadChat(chatId);
       
-      // If we already have messages, and it's not a forced reload, use the /latest endpoint
-      if (!shouldFetchAll && window.lastSavedMessageCount) {
-        // Get only messages after our current count
-        url = `http://localhost:23816/chats/${chatId}/latest?after_index=${window.lastSavedMessageCount}`;
-        console.log(`Fetching only new messages after index ${window.lastSavedMessageCount}`);
-      } else if (forceReload) {
-        console.log(`Force reloading all messages for chat ${chatId}`);
-      }
-      
-      console.log(`Loading chat from ${url}`);
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          // Chat not found, create a new one
-          const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
-          setMessages([systemMsg]);
-          saveChat(chatId, [systemMsg]);
-          setIsProcessing(false);
-          setEditingMessageIndex(null);
-          setInput('');
-          setAttachedFiles([]);
-          return;
-        }
-        throw new Error(`Failed to load chat: ${response.status} ${response.statusText}`);
-      }
-  
-      const data = await response.json();
-      console.log('Loaded chat data:', data);
-      
-      if (data && data.messages && Array.isArray(data.messages)) {
+      if (chat) {
         // Update title if available
-        if (data.name && data.name !== 'New Chat') {
-          setChatTitle(data.name);
+        if (chat.name && chat.name !== 'New Chat') {
+          setChatTitle(chat.name);
         }
         
-        // Process the loaded messages
-        const processedMessages = data.messages.map((msg: any) => {
-          // Ensure role exists and is valid
-          if (!msg.role || !['system', 'user', 'assistant', 'tool'].includes(msg.role)) {
-            console.warn(`Invalid message role: ${msg.role}, defaulting to 'user'`);
-            msg.role = 'user';
-          }
-          
-          // Ensure content exists
-          if (msg.content === undefined || msg.content === null) {
-            msg.content = '';
-          }
-          
-          // Create a properly typed message
-          const typedMsg: ExtendedMessage = {
-            role: msg.role as 'system' | 'user' | 'assistant' | 'tool',
-            content: msg.content
-          };
-          
-          // Always assign a messageId, generate if missing
-          typedMsg.messageId = msg.messageId !== undefined ? msg.messageId : uuidv4();
-          
-          // Add tool_call_id if present (for tool response messages)
-          if (msg.tool_call_id) {
-            typedMsg.tool_call_id = msg.tool_call_id;
-          }
-          
-          // Add tool_calls if present (for assistant messages)
-          if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-            typedMsg.tool_calls = msg.tool_calls.map((tc: any) => {
-              // Ensure function exists
-              if (!tc.function) {
-                console.warn('Missing function in tool call:', tc);
-                tc.function = { name: 'unknown', arguments: '{}' };
-              }
-              
-              return {
-                id: tc.id || generateValidToolCallId(),
-                name: tc.function.name,
-                type: 'function',
-                arguments: tc.function.arguments
-              };
-            });
-          }
-          
-          // Add attachments if present
-          if (msg.attachments && Array.isArray(msg.attachments)) {
-            typedMsg.attachments = msg.attachments;
-          }
-          
-          return typedMsg;
-        });
-
-        // Deduplicate messages after loading
-        const deduplicatedMessages: ExtendedMessage[] = [];
-        const seenMessageKeys = new Set<string>();
-        
-        // Function to generate a unique key for a message
-        const getMessageKey = (msg: ExtendedMessage): string => {
-          // For tool messages, include the tool_call_id to identify uniquely
-          if (msg.role === 'tool' && msg.tool_call_id) {
-            return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
-          }
-          // For assistant messages with tool calls, include the tool call IDs
-          else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-            const toolCallIds = msg.tool_calls.map(tc => tc.id).join(',');
-            return `assistant:toolcalls:${toolCallIds}`;
-          }
-          // For other messages, use role and content (truncated)
-          else {
-            return `${msg.role}:${typeof msg.content === 'string' ? 
-              msg.content.substring(0, 100) : JSON.stringify(msg.content).substring(0, 100)}`;
-          }
-        };
-        
-        // Only keep unique messages
-        processedMessages.forEach((msg: ExtendedMessage) => {
-          const key = getMessageKey(msg);
-          if (!seenMessageKeys.has(key)) {
-            seenMessageKeys.add(key);
-            deduplicatedMessages.push(msg);
-          } else {
-            console.log(`Skipping duplicate loaded message: ${key}`);
-          }
-          
-          // Note: messageId is now a UUID string, no longer used for counter tracking
-        });
-        
-        console.log(`Deduplicated ${processedMessages.length} loaded messages to ${deduplicatedMessages.length} messages`);
-        
-        // If we received no messages but we know there should be some, don't clear the UI
-        if (deduplicatedMessages.length === 0 && messages.length > 1 && !forceReload) {
-          console.warn('Received empty messages array from backend but UI has messages. Keeping current UI state.');
-          return;
-        }
-        
-        // If we're fetching only new messages, append them to existing messages
-        if (!shouldFetchAll && window.lastSavedMessageCount && messages.length > 0) {
-          console.log(`Appending ${deduplicatedMessages.length} new messages to existing ${messages.length} messages`);
-          setMessages(prevMessages => [...prevMessages, ...deduplicatedMessages]);
-          
-          // Update our tracking of message count to include the new messages
-          const newTotalCount = messages.length + deduplicatedMessages.length;
-          window.lastSavedMessageCount = newTotalCount;
-          console.log(`Updated lastSavedMessageCount to ${newTotalCount} after appending new messages`);
+        // Set messages directly
+        setMessages(chat.messages);
+        console.log(`Loaded chat ${chatId} with ${chat.messages.length} messages`);
       } else {
-          // For full loads, only replace if we actually got messages
-          if (deduplicatedMessages.length > 0) {
-            // Ensure the first message is a system message for full loads
-            if (deduplicatedMessages[0].role !== 'system') {
-              deduplicatedMessages.unshift({ role: 'system', content: INITIAL_SYSTEM_MESSAGE.content });
-            }
-            
-            // Set the messages completely (for full loads)
-            setMessages(deduplicatedMessages);
-            
-            // Update our tracking of message count for the full load
-            window.lastSavedMessageCount = deduplicatedMessages.length;
-            
-            console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} total messages, set lastSavedMessageCount to ${deduplicatedMessages.length}`);
-          } else {
-            // If we got an empty array but requested a full load, initialize with system message
-            console.log('Received empty messages array for full load, initializing with system message');
-            const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
-            setMessages([systemMsg]);
-            window.lastSavedMessageCount = 1;
-          }
-        }
-        
-        // Reset editing state
-        setEditingMessageIndex(null);
-        setInput('');
-        setAttachedFiles([]);
-        
-        console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} ${shouldFetchAll ? 'total' : 'new'} messages - total now: ${window.lastSavedMessageCount}`);
-      } else {
-        console.error('Invalid chat data format:', data);
-        // Don't reset messages if we already have some
-        if (messages.length <= 1) {
-          // Initialize with default system message only if we don't have messages
-          const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
-          setMessages([systemMsg]);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading chat:', error);
-      // Don't reset messages on error if we already have some
-      if (messages.length <= 1) {
-        // Initialize with default system message only if we don't have messages
+        // Chat not found, create a new one
+        console.log(`Chat ${chatId} not found, creating new chat`);
         const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
         setMessages([systemMsg]);
+        saveChat(chatId, [systemMsg]);
       }
+      
+      // Reset editing state
+      setEditingMessageIndex(null);
+      setInput('');
+      setAttachedFiles([]);
+      
+    } catch (error) {
+      console.error('Error loading chat:', error);
+      // Initialize with default system message on error
+      const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+      setMessages([systemMsg]);
     } finally {
-      // Only reset processing state if we're not in the middle of tool execution
-      if (!isInToolExecutionChain) {
-        setIsProcessing(false);
-      }
+      setIsProcessing(false);
     }
   };
 
   // Load all chats
   const loadChats = async () => {
     try {
-      const response = await fetch(`http://localhost:23816/chats`);
-      if (!response.ok) {
-        throw new Error('Failed to load chats');
-      }
-      
-      const loadedChats = await response.json();
-      // Sort chats by creation time, most recent first
-      const sortedChats = loadedChats.sort((a: ChatSession, b: ChatSession) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      setChats(sortedChats);
+      const loadedChats = await ChatService.listChats();
+      setChats(loadedChats);
     } catch (error) {
       console.error('Error loading chats:', error);
+      setChats([]);
     }
   };
 
@@ -3233,6 +2750,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Always append user and assistant message for a new turn
       let assistantMessageId = getNextMessageId();
       let updatedMessages: ExtendedMessage[] = [];
+      
       setMessages(prev => {
         if (editIndex !== null) {
           // Editing an existing message: replace and remove all after, then append new assistant
@@ -3244,12 +2762,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // New message: append user and assistant
           updatedMessages = [...prev, userMessage, { role: 'assistant', content: '', messageId: assistantMessageId }];
         }
-        // Save chat history immediately after adding or editing a user message
-        if (currentChatId) {
-          saveChat(currentChatId, updatedMessages, false);
-        }
         return updatedMessages;
       });
+      
+      // Save chat history immediately after updating messages
+      if (currentChatId) {
+        console.log(`Saving chat with ${updatedMessages.length} messages after user input`);
+        saveChat(currentChatId, updatedMessages, false);
+      }
       
       setInput('');
       if (editIndex !== null) {
@@ -4444,20 +3964,28 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 );
               }
               
-            // Add the tool result to messages
+                        // Add the tool result to messages
               setMessages(prev => {
-              const toolMessage: ExtendedMessage = {
-                  ...result,
-                role: 'tool',
-                  tool_call_id: functionCall.id
+                const toolMessage: ExtendedMessage = {
+                  role: 'tool',
+                  content: result.content || '', // Ensure content is preserved
+                  tool_call_id: functionCall.id,
+                  messageId: getNextMessageId() // Add unique message ID
                 };
                 
-              const updatedMessages = [...prev, toolMessage];
+                console.log(`Creating tool message with content: "${toolMessage.content}" (length: ${toolMessage.content.length})`);
+                console.log(`Tool result object:`, result);
                 
-              // Save chat after adding tool result
+                const updatedMessages = [...prev, toolMessage];
+                
+                // Save chat after adding tool result - but wait for state update to complete
                 if (currentChatId) {
-                window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-                saveChat(currentChatId, updatedMessages, true);
+                  // Use setTimeout to ensure state update completes before saving
+                  setTimeout(() => {
+                    console.log(`Saving chat with tool message content: "${toolMessage.content}"`);
+                    window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                    saveChat(currentChatId, updatedMessages, true);
+                  }, 0);
                 }
                 
                 return updatedMessages;
@@ -4936,14 +4464,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (currentChatId) {
           console.log('AI response completed - saving final chat state');
           
-          // The streaming content should already be properly set in the message
-          // No need to update it again here to avoid race conditions
-          
-          // Save chat without reload to prevent flickering
-          // Only reload if the message contains tool calls
-          const containsToolCalls = currentContent.includes('function_call:') || 
-                                   currentContent.includes('<function_calls>');
-          await saveChat(currentChatId, messages, containsToolCalls);
+          // Use a callback to get the current messages state
+          setMessages(prevMessages => {
+            // Save chat without reload to prevent flickering
+            // Only reload if the message contains tool calls
+            const containsToolCalls = currentContent.includes('function_call:') || 
+                                     currentContent.includes('<function_calls>');
+            
+            // Save in the next tick to ensure state is updated
+            setTimeout(() => {
+              saveChat(currentChatId, prevMessages, containsToolCalls);
+            }, 0);
+            
+            return prevMessages;
+          });
         }
         
         // Process any final tool calls after streaming is complete

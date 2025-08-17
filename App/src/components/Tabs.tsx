@@ -5,6 +5,7 @@ import ContextMenu from './ContextMenu';
 import { AIFileService } from '../services/AIFileService';
 import { showToast } from '../services/ToastService';
 import { FileSystemService } from '../services/FileSystemService';
+import { ExplorerService } from '../services/ExplorerService';
 import Modal from './Modal';
 import { isPreviewableFile } from '../utils/previewUtils';
 
@@ -420,6 +421,28 @@ const Tabs: React.FC<TabsProps> = ({
             y={contextMenu.y}
             onClose={() => setContextMenu(null)}
             options={[
+              {
+                label: 'Open in Explorer',
+                onClick: async () => {
+                  const file = items[contextMenu.fileId];
+                  if (file && file.path) {
+                    try {
+                      // Get the current directory from FileSystemService
+                      const currentDir = FileSystemService.getCurrentDirectory();
+                      
+                      const result = await ExplorerService.openInExplorer(file.path, currentDir);
+                      if (!result.success) {
+                        console.error('Failed to open in explorer:', result.error);
+                        showToast('Failed to open in explorer', 'error');
+                      }
+                    } catch (error) {
+                      console.error('Error opening in explorer:', error);
+                      showToast('Error opening in explorer', 'error');
+                    }
+                  }
+                },
+                disabled: contextMenu.fileId === 'welcome',
+              },
               {
                 label: 'Summarize',
                 onClick: () => handleSummarizeFile(contextMenu.fileId),

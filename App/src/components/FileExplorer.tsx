@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
+import { ExplorerService } from '../services/ExplorerService';
 import { getIconForFile, FolderIcon, ChevronIcon } from './FileIcons';
 import { isDatabaseFile } from './FileViewer';
 
@@ -321,6 +322,28 @@ const FileExplorerItem: React.FC<{
               <div style={contextMenuSeparatorStyle} />
             </>
           )}
+          <div
+            className="context-menu-item"
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                // Get the current directory from FileSystemService
+                const currentDir = FileSystemService.getCurrentDirectory();
+                
+                const result = await ExplorerService.openInExplorer(item.path, currentDir);
+                if (!result.success) {
+                  console.error('Failed to open in explorer:', result.error);
+                }
+              } catch (error) {
+                console.error('Error opening in explorer:', error);
+              }
+              handleCloseContextMenu();
+            }}
+            style={contextMenuItemStyle}
+          >
+            Open in Explorer
+          </div>
+          <div style={contextMenuSeparatorStyle} />
           <div
             className="context-menu-item"
             onClick={(e) => {

@@ -72,6 +72,7 @@ interface ElectronAPI {
     close: () => void;
     isMaximized: () => Promise<boolean>;
   };
+  openInExplorer: (filePath: string) => Promise<{success: boolean, error?: string}>;
 }
 
 interface Window {

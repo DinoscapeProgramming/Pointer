@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld(
       updateSettings: (settings) => {
         ipcRenderer.send('discord-settings-update', settings);
       }
+    },
+    // File system operations
+    openInExplorer: (filePath) => {
+      return ipcRenderer.invoke('open-in-explorer', filePath);
     }
   }
-); 
+);

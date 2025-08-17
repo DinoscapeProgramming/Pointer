@@ -1585,196 +1585,99 @@ def is_partial_message(msg1, msg2):
 @app.post("/chats/{chat_id}")
 async def save_chat(chat_id: str, request: ChatMessage):
     """
-    Save a chat using an append-only approach.
-    
-    - Normal messages are appended to the end
-    - Edited messages replace the specified message and remove all subsequent messages
-    - Setting overwrite=True will completely replace the chat (only for migrations or emergency fixes)
+    Save a chat with simple, reliable logic.
+    Always overwrites the entire chat to ensure clean state.
     """
     try:
-        # Auto-reindex codebase on every chat message
-        await auto_reindex_codebase()
-        
         chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
         
-        # DEBUG: Log incoming request details
         print(f"=== SAVE CHAT REQUEST ===")
         print(f"Chat ID: {chat_id}")
         print(f"Request messages count: {len(request.messages)}")
-        print(f"is_edit: {request.is_edit}")
-        print(f"edit_index: {request.edit_index}")
-        print(f"overwrite: {request.overwrite}")
         
         # Validate incoming messages structure
         if not isinstance(request.messages, list):
             raise ValueError("Request messages must be a list")
         
-        # Log each incoming message with validation
+        # Validate each message
+        valid_messages = []
         for i, msg in enumerate(request.messages):
             if not isinstance(msg, dict):
-                raise ValueError(f"Message {i} must be a dictionary")
+                print(f"Skipping invalid message {i}: not a dictionary")
+                continue
             if 'role' not in msg:
-                raise ValueError(f"Message {i} missing required 'role' field")
-            print(f"  Incoming message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
-        
-        # If this is a full overwrite request, simply write the new messages
-        if request.overwrite:
-            chat_data = {
-                "id": chat_id,
-                "name": "Chat",  # Use a default name, frontend should include proper name
-                "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "messages": request.messages
-            }
+                print(f"Skipping invalid message {i}: missing role field")
+                continue
+            if msg['role'] not in ['system', 'user', 'assistant', 'tool']:
+                print(f"Skipping invalid message {i}: invalid role '{msg['role']}'")
+                continue
             
-            # Check for name in first message
-            if request.messages and len(request.messages) > 0:
-                if 'name' in request.messages[0]:
-                    chat_data["name"] = request.messages[0]["name"]
-            
-            with open(chat_file, 'w', encoding='utf-8') as f:
-                json.dump(chat_data, f, indent=2)
-            
-            print(f"Full overwrite of chat {chat_id} with {len(request.messages)} messages")
-            return {'success': True, 'operation': 'overwrite'}
-        
-        # Load existing chat data if available
-        chat_data = None
-        if chat_file.exists():
-            try:
-                with open(chat_file, 'r', encoding='utf-8') as f:
-                    chat_data = json.load(f)
-                print(f"Loaded existing chat with {len(chat_data.get('messages', []))} messages")
-            except json.JSONDecodeError as e:
-                # Handle corrupted file
-                print(f"Error: Chat file {chat_id}.json is corrupted: {e}, creating new chat")
-                chat_data = None
-            except Exception as e:
-                print(f"Error reading chat file {chat_id}.json: {e}, creating new chat")
-                chat_data = None
-        
-        # If chat doesn't exist or was corrupted, create a new one
-        if not chat_data:
-            chat_data = {
-                "id": chat_id,
-                "name": "New Chat",
-                "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "messages": []
-            }
-            print(f"Created new chat data")
-        
-        # Validate existing chat data structure
-        if not isinstance(chat_data, dict):
-            raise ValueError("Chat data must be a dictionary")
-        if 'messages' not in chat_data:
-            chat_data['messages'] = []
-        if not isinstance(chat_data['messages'], list):
-            chat_data['messages'] = []
-        
-        # DEBUG: Log current chat state before processing
-        print(f"Current chat has {len(chat_data['messages'])} messages")
-        if len(chat_data["messages"]) > 0:
-            last_msg = chat_data["messages"][-1]
-            if isinstance(last_msg, dict):
-                print(f"Last message role: {last_msg.get('role')}")
-                print(f"Last message content length: {len(last_msg.get('content', ''))}")
-        
-        # Handle message editing (replace message at index and truncate)
-        if request.is_edit and request.edit_index >= 0:
-            # Make sure the index is valid
-            if request.edit_index < len(chat_data["messages"]):
-                # Replace the message at the index and remove all subsequent messages
-                chat_data["messages"] = chat_data["messages"][:request.edit_index]
-                chat_data["messages"].extend(request.messages)
-                print(f"Edited message at index {request.edit_index} in chat {chat_id}, truncated to {len(chat_data['messages'])} messages")
-                operation = "edit"
+            # Clean the message content
+            if 'content' in msg and msg['content'] is not None:
+                # Remove only clearly problematic content, not legitimate tool results
+                content = str(msg['content'])
+                if ('Used get codebase overview:' in content and 'Success\n{' in content):
+                    print(f"Cleaning malformed tool response from message {i}")
+                    msg['content'] = ''
+                elif any(bad_content in content for bad_content in [
+                    'function_call:', 'tool_call:', 'ERROR:', 'DEBUG:'
+                ]):
+                    # Only clear content if it's clearly malformed, not legitimate tool results
+                    if ('Used get codebase overview:' in content and 'Success\n{' in content):
+                        print(f"Cleaning malformed tool response from message {i}")
+                        msg['content'] = ''
+                    # Keep other content that might be legitimate tool results
+                else:
+                    msg['content'] = content
             else:
-                # Invalid index, just append
-                chat_data["messages"].extend(request.messages)
-                print(f"Invalid edit index {request.edit_index}, appending instead")
-                operation = "append"
-        else:
-            # DEBUG: Log what the frontend is sending
-            print(f"Frontend sent {len(request.messages)} messages (is_streaming_update={getattr(request, 'is_streaming_update', False)}):")
-            for i, msg in enumerate(request.messages):
-                if isinstance(msg, dict):
-                    print(f"  Request message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
+                msg['content'] = ''
             
-            # Check for duplicate tool responses before appending
-            new_messages = []
-            existing_tool_call_ids = set()
-            
-            # First, collect existing tool call IDs
-            for msg in chat_data["messages"]:
-                if isinstance(msg, dict) and msg.get("role") == "tool" and "tool_call_id" in msg:
-                    existing_tool_call_ids.add(msg["tool_call_id"])
-            
-            # Only add new messages that aren't duplicate tool responses
-            for msg in request.messages:
-                if not isinstance(msg, dict):
-                    print(f"Skipping invalid message: {msg}")
-                    continue
-                    
-                # For tool responses, check if we already have it by tool_call_id
-                if msg.get("role") == "tool" and "tool_call_id" in msg:
-                    if msg["tool_call_id"] in existing_tool_call_ids:
-                        print(f"Skipping duplicate tool response for ID {msg['tool_call_id']}")
-                        continue
-                    existing_tool_call_ids.add(msg["tool_call_id"])
-                
-                # For other message types, or if it's a new tool response, add it
-                new_messages.append(msg)
-            
-            # SIMPLIFIED: Just append all messages normally - no special streaming logic
-            print(f"Appending {len(new_messages)} messages to chat {chat_id}")
-            chat_data["messages"].extend(new_messages)
-            operation = "append"
+            valid_messages.append(msg)
         
-        # Update chat name if provided in the first message
-        if request.messages and len(request.messages) > 0 and isinstance(request.messages[0], dict) and 'name' in request.messages[0]:
-            chat_data["name"] = request.messages[0]["name"]
+        print(f"Validated {len(valid_messages)} messages out of {len(request.messages)}")
         
-        # Log the current state for debugging
-        if len(chat_data["messages"]) > 0:
-            last_msg = chat_data["messages"][-1]
-            if isinstance(last_msg, dict):
-                print(f"Chat has {len(chat_data['messages'])} messages. Last message role: {last_msg.get('role')}")
-                if len(chat_data["messages"]) > 1:
-                    second_last_msg = chat_data["messages"][-2]
-                    if isinstance(second_last_msg, dict):
-                        print(f"Second-to-last message role: {second_last_msg.get('role')}")
+        # Debug: log tool message content
+        for i, msg in enumerate(valid_messages):
+            if msg.get('role') == 'tool':
+                print(f"Tool message {i}: content='{msg.get('content', '')}' (length: {len(msg.get('content', ''))})")
         
-        # Frontend now handles all deduplication comprehensively - just validate message structure
-        valid_messages = []
-        invalid_count = 0
+        # Create clean chat data
+        chat_data = {
+            "id": chat_id,
+            "name": "New Chat",
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "messages": valid_messages
+        }
         
-        for i, msg in enumerate(chat_data["messages"]):
-            if isinstance(msg, dict) and 'role' in msg:
-                valid_messages.append(msg)
-            else:
-                invalid_count += 1
-                print(f"Skipping invalid message at index {i}: {type(msg)}")
+        # Extract chat name from first user message if available
+        for msg in valid_messages:
+            if msg.get('role') == 'user' and msg.get('content'):
+                content = str(msg['content'])
+                if len(content) > 0:
+                    # Take first 50 characters for chat name
+                    chat_data["name"] = content[:50].strip()
+                    if len(chat_data["name"]) == 0:
+                        chat_data["name"] = "New Chat"
+                    break
         
-        if invalid_count > 0:
-            print(f"Filtered out {invalid_count} invalid messages")
-        
-        # Update the chat data with valid messages (deduplication handled by frontend)
-        chat_data["messages"] = valid_messages
-        
-        # Save the updated chat
+        # Save the chat file
         try:
             with open(chat_file, 'w', encoding='utf-8') as f:
                 json.dump(chat_data, f, indent=2)
         except Exception as e:
             raise ValueError(f"Failed to write chat file: {e}")
         
-        final_count = len(chat_data["messages"])
-        print(f"Chat {chat_id} saved successfully: {final_count} total messages, operation: {operation}")
+        print(f"Chat {chat_id} saved successfully: {len(valid_messages)} messages")
         print(f"=== END SAVE CHAT REQUEST ===")
         
-        return {'success': True, 'operation': operation, 'message_count': final_count}
+        return {
+            'success': True, 
+            'operation': 'overwrite', 
+            'message_count': len(valid_messages)
+        }
         
     except Exception as e:
         import traceback
@@ -1783,7 +1686,7 @@ async def save_chat(chat_id: str, request: ChatMessage):
         print(f"Full traceback: {error_details}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Error saving chat: {str(e)}", "traceback": error_details}
+            content={"detail": f"Error saving chat: {str(e)}"}
         )
 
 @app.get("/files")
@@ -3089,6 +2992,32 @@ def get_app_data_path() -> Path:
 def get_chats_directory() -> Path:
     """Get the chats directory path"""
     return get_app_data_path() / 'chats'
+
+@app.delete("/chats/{chat_id}")
+async def delete_chat(chat_id: str):
+    """Delete a specific chat by ID."""
+    try:
+        chats_dir = get_chats_directory()
+        chat_file = chats_dir / f"{chat_id}.json"
+        
+        if not chat_file.exists():
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Chat not found"}
+            )
+            
+        # Delete the chat file
+        chat_file.unlink()
+        print(f"Chat {chat_id} deleted successfully")
+        
+        return {"success": True, "message": f"Chat {chat_id} deleted"}
+        
+    except Exception as e:
+        print(f"Error deleting chat {chat_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Error deleting chat: {str(e)}"}
+        )
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

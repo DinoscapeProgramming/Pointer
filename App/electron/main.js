@@ -723,4 +723,32 @@ ipcMain.handle('get-discord-rpc-settings', async () => {
   });
   
   return discordRpcSettings;
-}); 
+});
+
+// Open file/folder in system explorer
+ipcMain.handle('open-in-explorer', async (event, filePath) => {
+  try {
+    const { shell } = require('electron');
+    
+    // Check if the file/folder exists
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Path does not exist: ${filePath}`);
+    }
+    
+    // Get the stats to determine if it's a file or folder
+    const stats = fs.statSync(filePath);
+    
+    if (stats.isDirectory()) {
+      // For folders, show the folder in the explorer
+      await shell.openPath(filePath);
+    } else {
+      // For files, show the file in the explorer (will highlight the file)
+      await shell.showItemInFolder(filePath);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening in explorer:', error);
+    return { success: false, error: error.message };
+  }
+});
