@@ -738,23 +738,27 @@ class LMStudioService {
             toolName = toolNameMatch[1];
           }
           
-          // Create the assistant message with tool_calls
-          const assistantMessage: ExtendedMessage = {
-            role: 'assistant',
-            content: '',
-            tool_calls: [{
-              id: toolCallId,
-              type: 'function',
-              function: {
-                name: toolName,
-                arguments: '{}'
-              }
-            }]
-          };
-          
-          // Add the assistant message before the tool message
-          fixedMessages.push(assistantMessage);
-          toolCallIds.add(toolCallId);
+          // Only create synthetic assistant message if we have a valid tool name
+          if (toolName !== 'unknown_function') {
+            const assistantMessage: ExtendedMessage = {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: toolCallId,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: '{}'
+                }
+              }]
+            };
+            
+            // Add the assistant message before the tool message
+            fixedMessages.push(assistantMessage);
+            toolCallIds.add(toolCallId);
+          } else {
+            console.log(`Skipping synthetic assistant message for unknown tool: ${toolName}`);
+          }
         }
         
         // Add the tool message

@@ -1602,8 +1602,9 @@ async def save_chat(chat_id: str, request: ChatMessage):
         if not isinstance(request.messages, list):
             raise ValueError("Request messages must be a list")
         
-        # Validate each message
+        # Validate each message and track tool call IDs to prevent duplicates
         valid_messages = []
+        seen_tool_call_ids = set()
         for i, msg in enumerate(request.messages):
             if not isinstance(msg, dict):
                 print(f"Skipping invalid message {i}: not a dictionary")
@@ -1614,6 +1615,14 @@ async def save_chat(chat_id: str, request: ChatMessage):
             if msg['role'] not in ['system', 'user', 'assistant', 'tool']:
                 print(f"Skipping invalid message {i}: invalid role '{msg['role']}'")
                 continue
+            
+            # Check for duplicate tool messages
+            if msg['role'] == 'tool' and 'tool_call_id' in msg:
+                tool_call_id = msg['tool_call_id']
+                if tool_call_id in seen_tool_call_ids:
+                    print(f"Skipping duplicate tool message {i} with ID: {tool_call_id}")
+                    continue
+                seen_tool_call_ids.add(tool_call_id)
             
             # Clean the message content
             if 'content' in msg and msg['content'] is not None:
@@ -1639,14 +1648,38 @@ async def save_chat(chat_id: str, request: ChatMessage):
             else:
                 msg['content'] = ''
             
+            # Preserve tool_calls field for assistant messages
+            if msg['role'] == 'assistant' and 'tool_calls' in msg and msg['tool_calls']:
+                # Ensure tool_calls is properly formatted
+                if isinstance(msg['tool_calls'], list):
+                    # Validate and clean each tool call
+                    cleaned_tool_calls = []
+                    for tc in msg['tool_calls']:
+                        if isinstance(tc, dict) and 'function' in tc:
+                            cleaned_tc = {
+                                'id': tc.get('id', f"tool_{int(time.time())}_{i}"),
+                                'type': tc.get('type', 'function'),
+                                'function': {
+                                    'name': tc['function'].get('name', 'unknown'),
+                                    'arguments': tc['function'].get('arguments', '{}')
+                                }
+                            }
+                            cleaned_tool_calls.append(cleaned_tc)
+                    msg['tool_calls'] = cleaned_tool_calls
+                    print(f"Preserved {len(cleaned_tool_calls)} tool calls for assistant message {i}")
+            
             valid_messages.append(msg)
         
         print(f"Validated {len(valid_messages)} messages out of {len(request.messages)}")
         
-        # Debug: log tool message content
+        # Debug: log tool message content and assistant tool_calls
         for i, msg in enumerate(valid_messages):
             if msg.get('role') == 'tool':
                 print(f"Tool message {i}: content='{msg.get('content', '')}' (length: {len(msg.get('content', ''))})")
+            elif msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                print(f"Assistant message {i}: has {len(msg['tool_calls'])} tool_calls")
+                for j, tc in enumerate(msg['tool_calls']):
+                    print(f"  Tool call {j}: name='{tc.get('function', {}).get('name', 'unknown')}', args='{tc.get('function', {}).get('arguments', '{}')}'")
         
         # Create clean chat data
         chat_data = {

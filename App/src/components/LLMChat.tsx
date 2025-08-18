@@ -2184,6 +2184,14 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       }
       return true;
     })
+    // Also filter out empty tool messages that might cause issues
+    .filter((msg) => {
+      if (msg.role === 'tool' && (!msg.content || msg.content.trim() === '')) {
+        console.log(`Filtering out empty tool message for ID: ${msg.tool_call_id || 'unknown'}`);
+        return false;
+      }
+      return true;
+    })
     // Then map to the correct format for the API
     .map((msg) => {
       // Handle file attachments
@@ -2210,7 +2218,17 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       }
 
       // Special handling for assistant messages with function_call syntax in content
+      // Only process if this is NOT a thinking message and the function_call looks like a real tool call
       if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.includes('function_call:')) {
+        // Skip if this is a thinking message (contains <think> tags)
+        if (msg.content.includes('<think>') || msg.content.includes('</think>')) {
+          console.log('Skipping function_call extraction from thinking message');
+          return { 
+            role: msg.role, 
+            content: msg.content || ''
+          };
+        }
+        
         try {
           // Extract the function call - try multiple patterns
           const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
@@ -2234,6 +2252,15 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
                 arguments: argsMatch?.[1] || '{}'
               };
               console.log('Manually extracted function call:', functionCall);
+            }
+            
+            // Validate that this is a real tool call, not an example or thinking
+            if (functionCall.name === 'unknown_function' || !functionCall.name) {
+              console.log('Skipping invalid function call with name:', functionCall.name);
+              return { 
+                role: msg.role, 
+                content: msg.content || ''
+              };
             }
             
             // Ensure valid ID format
