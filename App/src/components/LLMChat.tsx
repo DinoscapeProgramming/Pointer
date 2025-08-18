@@ -4010,13 +4010,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         return null;
       }
       
-      // Properly format the tool response
+      // The ToolService returns a complete tool message object
+      // We need to use the tool_call_id from the result and ensure proper formatting
       const formattedResult: ExtendedMessage = {
         role: 'tool',
-        content: typeof result.content === 'string' 
-          ? result.content 
-          : JSON.stringify(result.content, null, 2),
-        tool_call_id: toolCallId
+        content: result.content || '',
+        tool_call_id: result.tool_call_id || toolCallId,
+        messageId: getNextMessageId()
       };
       
       console.log(`Tool call ${name} completed successfully with ID: ${toolCallId}`);
@@ -4464,12 +4464,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               
                         // Add the tool result to messages
               setMessages(prev => {
-                const toolMessage: ExtendedMessage = {
-                  role: 'tool',
-                  content: result.content || '', // Ensure content is preserved
-                  tool_call_id: functionCall.id,
-                  messageId: getNextMessageId() // Add unique message ID
-                };
+                // Use the formatted result directly since it's already a proper tool message
+                const toolMessage: ExtendedMessage = result;
                 
                 console.log(`Creating tool message with content: "${toolMessage.content}" (length: ${toolMessage.content.length})`);
                 console.log(`Tool result object:`, result);

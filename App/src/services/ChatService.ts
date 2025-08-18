@@ -51,14 +51,25 @@ export class ChatService {
 
       // Only filter out specific problematic patterns, not legitimate tool results
       if (typeof cleanMsg.content === 'string') {
-        // Remove only clearly malformed tool call syntax, not legitimate tool results
-        if (cleanMsg.content.includes('function_call:') && 
-            cleanMsg.content.includes('tool_call:') &&
-            cleanMsg.content.includes('ERROR:')) {
-          // This is likely malformed tool call syntax, clear it
-          cleanMsg.content = '';
+        // For tool messages, be very conservative about cleaning
+        if (msg.role === 'tool') {
+          // Only clear tool messages that contain clearly malformed function call syntax
+          if (cleanMsg.content.includes('function_call:') && 
+              cleanMsg.content.includes('tool_call:') &&
+              cleanMsg.content.includes('ERROR:')) {
+            // This is likely malformed tool call syntax, clear it
+            cleanMsg.content = '';
+          }
+          // Keep all other tool content, including "Success" and JSON objects
+        } else {
+          // For non-tool messages, be more aggressive about cleaning
+          if (cleanMsg.content.includes('function_call:') && 
+              cleanMsg.content.includes('tool_call:') &&
+              cleanMsg.content.includes('ERROR:')) {
+            // This is likely malformed tool call syntax, clear it
+            cleanMsg.content = '';
+          }
         }
-        // Keep legitimate tool results that contain useful information
       }
 
       return cleanMsg;

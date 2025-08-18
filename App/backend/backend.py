@@ -1617,20 +1617,24 @@ async def save_chat(chat_id: str, request: ChatMessage):
             
             # Clean the message content
             if 'content' in msg and msg['content'] is not None:
-                # Remove only clearly problematic content, not legitimate tool results
                 content = str(msg['content'])
-                if ('Used get codebase overview:' in content and 'Success\n{' in content):
+                
+                # Only clear content for clearly malformed patterns, not legitimate tool results
+                # Tool responses often contain "Success" and JSON objects, which are legitimate
+                if (msg['role'] == 'tool' and 
+                    ('function_call:' in content or 'tool_call:' in content or 'ERROR:' in content)):
+                    # Only clear tool messages that contain malformed function call syntax
                     print(f"Cleaning malformed tool response from message {i}")
                     msg['content'] = ''
-                elif any(bad_content in content for bad_content in [
-                    'function_call:', 'tool_call:', 'ERROR:', 'DEBUG:'
-                ]):
-                    # Only clear content if it's clearly malformed, not legitimate tool results
-                    if ('Used get codebase overview:' in content and 'Success\n{' in content):
-                        print(f"Cleaning malformed tool response from message {i}")
-                        msg['content'] = ''
-                    # Keep other content that might be legitimate tool results
+                elif (msg['role'] != 'tool' and 
+                      any(bad_content in content for bad_content in [
+                          'function_call:', 'tool_call:', 'ERROR:', 'DEBUG:'
+                      ])):
+                    # For non-tool messages, be more aggressive about cleaning
+                    print(f"Cleaning malformed content from message {i}")
+                    msg['content'] = ''
                 else:
+                    # Keep legitimate content, including tool results
                     msg['content'] = content
             else:
                 msg['content'] = ''
