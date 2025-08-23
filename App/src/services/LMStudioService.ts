@@ -458,7 +458,7 @@ class LMStudioService {
         } catch (parseError) {
           // If parsing fails, throw an error instead of using fallbacks
           console.error('Failed to parse tool arguments JSON:', parseError);
-          throw new Error(`Invalid tool arguments format: ${parseError.message}`);
+          throw new Error(`Invalid tool arguments format: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
         }
       } else {
         // Arguments is already an object

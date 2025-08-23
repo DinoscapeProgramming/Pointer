@@ -845,8 +845,12 @@ export const DiffViewer: React.FC = () => {
           themeName = 'custom-theme';
         }
         
-        // Update the diff editor theme
-        diffEditorRef.current.updateOptions({ theme: themeName });
+        // Update the diff editor theme - need to recreate the editor for theme changes
+        // diffEditorRef.current.updateOptions({ theme: themeName });
+        // For now, just apply the custom theme function
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
       }
     };
     

@@ -272,7 +272,7 @@ const App: React.FC = () => {
           // Process colors to ensure they're in a valid format
           const processedEditorColors: Record<string, string> = {};
           Object.entries(themeSettings.editorColors || {}).forEach(([key, value]) => {
-            if (value) {
+            if (value && typeof value === 'string') {
               // Remove alpha component if present (e.g., #rrggbbaa → #rrggbb)
               const processedValue = value.length > 7 ? value.substring(0, 7) : value;
               processedEditorColors[key] = processedValue;
@@ -641,7 +641,7 @@ const App: React.FC = () => {
         }));
         
         if (editor.current) {
-          editor.current.setValue(fileSystem.items['welcome']?.content || '');
+          editor.current.setValue((fileSystem.items['welcome'] as FileSystemItem)?.content || '');
           // Reapply the custom theme after setting editor content
           applyCustomTheme();
         }
@@ -650,7 +650,7 @@ const App: React.FC = () => {
       
       setFileSystem(prev => ({ ...prev, currentFileId: 'welcome' }));
       if (editor.current) {
-        editor.current.setValue(fileSystem.items['welcome']?.content || '');
+        editor.current.setValue((fileSystem.items['welcome'] as FileSystemItem)?.content || '');
         // Reapply the custom theme after setting editor content
         applyCustomTheme();
       }
@@ -735,7 +735,7 @@ const App: React.FC = () => {
           // Don't clear the editor if we still have the content in fileSystem
           if (editor.current && fileSystem.items['welcome']) {
             // Set to welcome message instead of empty string
-            const welcomeContent = fileSystem.items['welcome'].content ||
+            const welcomeContent = (fileSystem.items['welcome'] as FileSystemItem).content ||
               "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file.";
             editor.current.setValue(welcomeContent);
             
@@ -1201,9 +1201,7 @@ const App: React.FC = () => {
     };
     
     // Expose the file system
-    window.fileSystem = {
-      items: fileSystem.items
-    };
+    window.fileSystem = fileSystem.items;
 
     // Expose reloadFileContent
     window.reloadFileContent = reloadFileContent;
@@ -1249,10 +1247,10 @@ const App: React.FC = () => {
 
   return () => {
     window.fileSystem = undefined;
-    window.getCurrentFile = undefined;
-    window.reloadFileContent = undefined;
-    window.applyCustomTheme = undefined;
-    window.loadSettings = undefined;
+    window.getCurrentFile = null;
+    window.reloadFileContent = null;
+    window.applyCustomTheme = null;
+    window.loadSettings = null;
     window.removeEventListener('openFile', handleOpenFileEvent as EventListener);
   };
   }, [fileSystem, reloadFileContent, applyCustomTheme, loadSettings]);
@@ -1277,10 +1275,10 @@ const App: React.FC = () => {
         if (!mounted) return;
 
         // Load settings using loadAllSettings
-        if (window.loadAllSettings) {
-          await window.loadAllSettings();
+        if (window.loadSettings) {
+          await window.loadSettings();
         } else {
-          // Fallback to loadSettings if loadAllSettings is not available
+          // Fallback to local loadSettings if window.loadSettings is not available
           await loadSettings();
         }
 
