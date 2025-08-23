@@ -430,7 +430,7 @@ const Tabs: React.FC<TabsProps> = ({
                       // Get the current directory from FileSystemService
                       const currentDir = FileSystemService.getCurrentDirectory();
                       
-                      const result = await ExplorerService.openInExplorer(file.path, currentDir);
+                      const result = await ExplorerService.openInExplorer(file.path, currentDir || undefined);
                       if (!result.success) {
                         console.error('Failed to open in explorer:', result.error);
                         showToast('Failed to open in explorer', 'error');

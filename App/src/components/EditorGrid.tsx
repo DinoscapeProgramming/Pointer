@@ -17,8 +17,6 @@ declare global {
     editorSettings?: { autoAcceptGhostText: boolean };
   }
 }
-  }
-}
 
 // Function to remove <think> and </think> tags and their content
 const stripThinkTags = (text: string): string => {

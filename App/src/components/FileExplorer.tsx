@@ -330,7 +330,7 @@ const FileExplorerItem: React.FC<{
                 // Get the current directory from FileSystemService
                 const currentDir = FileSystemService.getCurrentDirectory();
                 
-                const result = await ExplorerService.openInExplorer(item.path, currentDir);
+                const result = await ExplorerService.openInExplorer(item.path, currentDir || undefined);
                 if (!result.success) {
                   console.error('Failed to open in explorer:', result.error);
                 }

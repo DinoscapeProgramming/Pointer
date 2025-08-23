@@ -669,9 +669,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
           
           // Auto-discover models for configurations with empty model IDs
           for (const [key, modelConfig] of Object.entries(validatedModels)) {
-            if ((!modelConfig.id || modelConfig.id.trim() === '') && modelConfig.apiEndpoint) {
+            const config = modelConfig as any;
+            if ((!config.id || config.id.trim() === '') && config.apiEndpoint) {
               // Discover models in the background
-              fetchAvailableModels(modelConfig.apiEndpoint, modelConfig.apiKey);
+              fetchAvailableModels(config.apiEndpoint, config.apiKey);
               break; // Only discover for one config to avoid overwhelming the API
             }
           }
