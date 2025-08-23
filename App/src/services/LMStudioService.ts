@@ -456,27 +456,9 @@ class LMStudioService {
           params = JSON.parse(argsStr);
           console.log('Successfully parsed arguments:', params);
         } catch (parseError) {
-          // If parsing still fails, try a simpler approach with fixed keys
-          console.warn('Failed to parse arguments JSON, using fallbacks:', parseError);
-          
-          // Handle specific tool arguments
-          if (toolName === 'list_directory' || toolName === 'list_dir') {
-            const dirMatch = argsStr.match(/"?directory_path"?\s*:\s*"([^"]+)"/);
-            if (dirMatch && dirMatch[1]) {
-              params = { directory_path: dirMatch[1] };
-            } else {
-              params = { directory_path: '.' }; // Default to current directory
-            }
-          } else if (toolName === 'read_file') {
-            const fileMatch = argsStr.match(/"?target_file"?\s*:\s*"([^"]+)"/);
-            if (fileMatch && fileMatch[1]) {
-              params = { target_file: fileMatch[1] };
-            } else {
-              params = {}; // Empty params for read_file
-            }
-          } else {
-            params = {}; // Default empty params
-          }
+          // If parsing fails, throw an error instead of using fallbacks
+          console.error('Failed to parse tool arguments JSON:', parseError);
+          throw new Error(`Invalid tool arguments format: ${parseError.message}`);
         }
       } else {
         // Arguments is already an object
@@ -493,37 +475,10 @@ class LMStudioService {
     let fixedParams = {...params};
     let fixedToolName = toolName;
     
-    // If tool name is empty, try to infer it from parameters
+    // If tool name is empty, return error instead of inferring
     if (!fixedToolName || fixedToolName === '') {
-      console.log('Tool name is empty, trying to infer from parameters:', params);
-      
-      if (params.directory_path || params.relative_workspace_path) {
-        fixedToolName = 'list_directory';
-        console.log('Inferred tool name as list_directory from directory parameters');
-      } else if (params.file_path) {
-        // Check if file_path looks like a directory
-        const filePath = params.file_path;
-        const isDirectory = filePath.endsWith('\\') || 
-                           filePath.endsWith('/') || 
-                           !filePath.includes('.') ||
-                           filePath.includes('Documents') ||
-                           filePath.includes('Users') ||
-                           filePath.includes('TestFolder');
-        
-        if (isDirectory) {
-          fixedToolName = 'list_directory';
-          console.log('Inferred tool name as list_directory from file_path that looks like directory');
-        } else {
-          fixedToolName = 'read_file';
-          console.log('Inferred tool name as read_file from file_path that looks like file');
-        }
-      } else if (params.target_file) {
-        fixedToolName = 'read_file';
-        console.log('Inferred tool name as read_file from target_file parameter');
-      } else {
-        console.warn('Could not infer tool name from parameters, defaulting to list_directory');
-        fixedToolName = 'list_directory';
-      }
+      console.error('Tool name is empty or missing - cannot infer tool type');
+      throw new Error('Tool name is required and cannot be inferred from parameters');
     }
     
     // Check for parameter mismatches and fix them
@@ -575,37 +530,21 @@ class LMStudioService {
         };
       }
     } else if (toolName === 'list_dir' || toolName === 'list_directory') {
-      // Make sure list_directory uses directory_path
-      if (params.relative_workspace_path && !params.directory_path) {
-        fixedParams.directory_path = params.relative_workspace_path;
-        delete fixedParams.relative_workspace_path;
-      }
-      
-      // Ensure directory_path has a value (default to '.' if missing)
+      // Validate required parameters for list_directory
       if (!fixedParams.directory_path) {
-        fixedParams.directory_path = '.';
+        throw new Error('Missing required parameter "directory_path" for list_directory tool');
       }
       
       // Always use list_directory on the backend
       fixedToolName = 'list_directory';
-      console.log('Fixed tool name to list_directory');
+      console.log('Using list_directory tool');
     } else if (toolName === 'read_file') {
-      // Make sure read_file uses target_file
-      if (params.directory_path && !params.target_file) {
-        fixedParams.target_file = params.directory_path;
-        delete fixedParams.directory_path;
-      }
-      
-      // Also handle file_path parameter
-      if (params.file_path && !params.target_file) {
-        fixedParams.target_file = params.file_path;
-        delete fixedParams.file_path;
-      }
-      
-      // Ensure target_file exists
+      // Validate required parameters for read_file
       if (!fixedParams.target_file) {
-        console.warn('No target_file parameter for read_file');
+        throw new Error('Missing required parameter "target_file" for read_file tool');
       }
+      
+      console.log('Using read_file tool');
     }
     
     console.log(`Tool parameters after fixing: ${JSON.stringify(fixedParams)}`);
@@ -1032,6 +971,25 @@ class LMStudioService {
     // And keep some from the end for recency
     const endMessages = otherMessages.slice(-10);
     
+    // For assistant messages, try to preserve thinking content even when truncating
+    const processedEndMessages = endMessages.map(msg => {
+      if (msg.role === 'assistant' && typeof msg.content === 'string') {
+        // If the message is very long, try to preserve the thinking content
+        if (msg.content.length > 1000) {
+          const thinkMatch = msg.content.match(/<think>([\s\S]*?)<\/think>/);
+          if (thinkMatch && thinkMatch[1]) {
+            // Keep the thinking content and truncate the rest
+            const thinkingContent = thinkMatch[1].substring(0, 800); // Limit thinking to 800 chars
+            return {
+              ...msg,
+              content: `<think>${thinkingContent}...</think>\n\n[Message content truncated due to size limits]`
+            };
+          }
+        }
+      }
+      return msg;
+    });
+    
     // Combine them - ensure tool messages are included
     return [
       ...systemMessages,
@@ -1041,7 +999,7 @@ class LMStudioService {
         content: '... [Previous messages omitted for size] ...'
       },
       ...toolMessages, // Ensure tool messages are included
-      ...endMessages
+      ...processedEndMessages
     ];
   }
   
@@ -1949,11 +1907,41 @@ class LMStudioService {
         arguments: validatedToolCall.function.arguments || '{}'
       })}`;
       
-      // Clear any existing function call in the accumulated content
+      // Preserve the accumulated content, but clean up any incomplete function calls
       let updatedAccumulatedContent = accumulatedContent;
+      
+      // Instead of truncating at the first function_call, preserve the content and just clean up incomplete ones
       if (updatedAccumulatedContent.includes('function_call:')) {
-        const functionCallIndex = updatedAccumulatedContent.indexOf('function_call:');
-        updatedAccumulatedContent = updatedAccumulatedContent.substring(0, functionCallIndex).trim();
+        // Find the last complete function call to preserve content
+        const functionCallMatches = updatedAccumulatedContent.matchAll(/function_call:\s*({[^{}]*(?:{[^{}]*}[^{}]*)*})\s*(?=function_call:|$)/g);
+        let lastCompleteIndex = -1;
+        
+        for (const match of functionCallMatches) {
+          if (match.index !== undefined) {
+            lastCompleteIndex = match.index + match[0].length;
+          }
+        }
+        
+        if (lastCompleteIndex > 0) {
+          // Keep content up to the last complete function call
+          updatedAccumulatedContent = updatedAccumulatedContent.substring(0, lastCompleteIndex).trim();
+        } else {
+          // If no complete function calls found, just remove any incomplete ones
+          const lastIncompleteIndex = updatedAccumulatedContent.lastIndexOf('function_call:');
+          if (lastIncompleteIndex > 0) {
+            updatedAccumulatedContent = updatedAccumulatedContent.substring(0, lastIncompleteIndex).trim();
+          }
+        }
+        
+        // Ensure we don't lose important thinking content
+        if (updatedAccumulatedContent.includes('<think>') && !updatedAccumulatedContent.includes('</think>')) {
+          // If we have an incomplete think block, try to find the complete one
+          const thinkMatch = accumulatedContent.match(/<think>([\s\S]*?)<\/think>/);
+          if (thinkMatch && thinkMatch[1]) {
+            // Prepend the complete thinking content
+            updatedAccumulatedContent = `<think>${thinkMatch[1]}</think>\n\n${updatedAccumulatedContent}`;
+          }
+        }
       }
       
       // Add the formatted tool call

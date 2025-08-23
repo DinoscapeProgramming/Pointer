@@ -7,4 +7,5 @@ PyQt5-sip>=12.8.1
 PyQtWebEngine==5.15.6
 python-multipart==0.0.9
 starlette>=0.27.0
-websockets 
+websockets
+google-search-results==2.4.2 

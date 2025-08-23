@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -16,13 +16,54 @@ interface ChatMessageProps {
   index: number;
   isAnyProcessing?: boolean;
   onEditMessage?: (index: number) => void;
+  onContinue?: (messageIndex: number) => void;
 }
 
-const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessage }: ChatMessageProps) => {
+const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessage, onContinue }: ChatMessageProps) => {
+  const [isErrorExpanded, setIsErrorExpanded] = useState(false);
+  
   const handleEdit = () => {
     if (onEditMessage) {
       onEditMessage(index);
     }
+  };
+
+  // Check if this is an error message
+  const isErrorMessage = (content: string): boolean => {
+    const errorPatterns = [
+      /I apologize, but I encountered an error/,
+      /I apologize, but an error occurred/,
+      /I'm having trouble processing your request/,
+      /encountered an error while trying to continue/,
+      /Error processing your request/,
+      /Failed to process/,
+      /An error occurred/,
+      /Operation cancelled by user/,
+      /but encountered an error:/
+    ];
+    
+    return errorPatterns.some(pattern => pattern.test(content));
+  };
+
+  // Extract error details if available
+  const extractErrorDetails = (content: string): string | null => {
+    // Look for common error detail patterns
+    const detailPatterns = [
+      /error:\s*(.+)/i,
+      /failed:\s*(.+)/i,
+      /exception:\s*(.+)/i,
+      /details:\s*(.+)/i,
+      /but encountered an error:\s*(.+)/i
+    ];
+    
+    for (const pattern of detailPatterns) {
+      const match = content.match(pattern);
+      if (match) {
+        return match[1].trim();
+      }
+    }
+    
+    return null;
   };
 
   const renderMarkdown = (content: string) => (
@@ -226,12 +267,19 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
     </ReactMarkdown>
   );
 
+  const messageContent = typeof message.content === 'string' ? message.content : '';
+  const isError = isErrorMessage(messageContent);
+  const errorDetails = isError ? extractErrorDetails(messageContent) : null;
+
   return (
     <div
       style={{
         padding: '12px 16px',
         borderBottom: '1px solid var(--border-color)',
-        background: message.role === 'user' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+        background: isError 
+          ? 'var(--error-bg)' // Light red background for errors
+          : message.role === 'user' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+        borderLeft: isError ? '4px solid var(--error-color)' : 'none', // Red left border for errors
       }}
     >
       <div style={{ 
@@ -243,40 +291,124 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
         <div style={{
           fontSize: '12px',
           fontWeight: 'bold',
-          color: message.role === 'user' ? 'var(--accent-color)' : 'var(--success-color)',
+          color: isError 
+            ? 'var(--error-color)' // Red color for error messages
+            : message.role === 'user' ? 'var(--accent-color)' : 'var(--success-color)',
           textTransform: 'uppercase',
         }}>
-          {message.role === 'user' ? 'You' : 'Assistant'}
+          {isError ? 'Error' : message.role === 'user' ? 'You' : 'Assistant'}
         </div>
-        {message.role === 'user' && onEditMessage && (
-          <button
-            onClick={handleEdit}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              padding: '2px 6px',
-              borderRadius: '3px',
-              fontSize: '11px',
-            }}
-            title="Edit message"
-          >
-            Edit
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isError && onContinue && (
+            <button
+              onClick={() => onContinue(index)}
+              disabled={isAnyProcessing}
+              style={{
+                background: 'var(--accent-color)',
+                border: '1px solid var(--accent-color)',
+                color: 'white',
+                cursor: isAnyProcessing ? 'not-allowed' : 'pointer',
+                padding: '4px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: '500',
+                transition: 'all 0.2s ease',
+                opacity: isAnyProcessing ? 0.6 : 1,
+              }}
+              title={isAnyProcessing ? "Processing..." : "Retry this conversation"}
+              onMouseEnter={(e) => {
+                if (!isAnyProcessing) {
+                  e.currentTarget.style.background = 'var(--accent-hover)';
+                  e.currentTarget.style.borderColor = 'var(--accent-hover)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isAnyProcessing) {
+                  e.currentTarget.style.background = 'var(--accent-color)';
+                  e.currentTarget.style.borderColor = 'var(--accent-color)';
+                }
+              }}
+            >
+              {isAnyProcessing ? 'Processing...' : 'Continue'}
+            </button>
+          )}
+          {isError && errorDetails && (
+            <button
+              onClick={() => setIsErrorExpanded(!isErrorExpanded)}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--error-color)',
+                color: 'var(--error-color)',
+                cursor: 'pointer',
+                padding: '2px 8px',
+                borderRadius: '3px',
+                fontSize: '11px',
+                transition: 'all 0.2s ease',
+              }}
+              title={isErrorExpanded ? "Hide error details" : "Show error details"}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--error-color)';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'var(--error-color)';
+              }}
+            >
+              {isErrorExpanded ? 'Hide Details' : 'Show Details'}
+            </button>
+          )}
+          {message.role === 'user' && onEditMessage && (
+            <button
+              onClick={handleEdit}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '2px 6px',
+                borderRadius: '3px',
+                fontSize: '11px',
+              }}
+              title="Edit message"
+            >
+              Edit
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ 
-        color: 'var(--text-primary)', 
+        color: isError ? 'var(--error-text)' : 'var(--text-primary)', 
         lineHeight: '1.5',
         fontSize: '14px',
       }}>
-        {renderMarkdown(message.content)}
+        {renderMarkdown(messageContent)}
       </div>
+      
+      {/* Error details section */}
+      {isError && errorDetails && isErrorExpanded && (
+        <div style={{
+          marginTop: '12px',
+          padding: '12px',
+          background: 'var(--error-bg)',
+          border: '1px solid var(--error-border)',
+          borderRadius: '4px',
+          fontSize: '13px',
+          color: 'var(--error-text)',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+            Error Details:
+          </div>
+          <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+            {errorDetails}
+          </div>
+        </div>
+      )}
+      
       {message.timestamp && (
         <div style={{
           fontSize: '11px',
-          color: 'var(--text-secondary)',
+          color: isError ? 'var(--error-text)' : 'var(--text-secondary)',
           marginTop: '8px',
         }}>
           {new Date(message.timestamp).toLocaleTimeString()}

@@ -681,7 +681,12 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 // Memoized MessageRenderer to prevent unnecessary re-renders during resize
-const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: boolean }> = React.memo(({ message, isAnyProcessing = false }) => {
+const MessageRenderer: React.FC<{ 
+  message: ExtendedMessage; 
+  isAnyProcessing?: boolean;
+  onContinue?: (messageIndex: number) => void;
+  messageIndex?: number;
+}> = React.memo(({ message, isAnyProcessing = false, onContinue, messageIndex }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
   // Handle non-string content
@@ -2362,6 +2367,7 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
 };
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
+  console.log('LLMChat rendered with currentChatId:', currentChatId);
   // Add mode state
   const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
   
@@ -2375,6 +2381,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     const current = Number((window.highestMessageId as any) || 0);
     const next = Number.isFinite(current) ? current + 1 : 1;
     window.highestMessageId = next;
+    console.log(`getNextMessageId: current=${current}, next=${next}`);
     return String(next);
   };
   const [input, setInput] = useState('');
@@ -2667,7 +2674,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
-      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
+      // Prevent multiple simultaneous save operations
+      if (window.isSavingChat) {
+        console.log('Chat save already in progress, skipping this save operation');
+        return;
+      }
+      window.isSavingChat = true;
+      
+      console.log(`Saving chat ${chatId} with ${messages.length} messages (reloadAfterSave: ${reloadAfterSave})`);
+      console.log('Messages to save:', messages.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
+      console.log('Save operation called from:', new Error().stack?.split('\n')[2]?.trim());
       
       // Use the simplified ChatService
       const success = await ChatService.saveChat(chatId, messages);
@@ -2686,6 +2702,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       }
     } catch (error) {
       console.error('Error in saveChat function:', error);
+    } finally {
+      // Always clear the saving flag
+      window.isSavingChat = false;
     }
   };
 
@@ -2694,7 +2713,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       setIsProcessing(true);
       
-      console.log(`Loading chat ${chatId} (forceReload: ${forceReload})`);
+      console.log(`Loading chat ${chatId} (forceReload: ${forceReload}) - Stack trace:`, new Error().stack);
       
       // Use the simplified ChatService
       const chat = await ChatService.loadChat(chatId);
@@ -2706,6 +2725,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
         
         // Set messages directly
+        console.log(`Setting messages from loaded chat: ${chat.messages.length} messages, current count: ${messages.length}`);
         setMessages(chat.messages);
         console.log(`Loaded chat ${chatId} with ${chat.messages.length} messages`);
       } else {
@@ -3637,7 +3657,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         const containsToolCalls = currentContent.includes('function_call:') || 
                                  currentContent.includes('<function_calls>');
         console.log('Saving chat with complete AI response');
-        await saveChat(currentChatId, messages, containsToolCalls);
+        // Get the current messages state to ensure we have the latest
+        setMessages(currentMessages => {
+          saveChat(currentChatId, currentMessages, containsToolCalls);
+          return currentMessages;
+        });
       }
       }
 
@@ -3656,11 +3680,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
     } catch (error) {
       console.error(`Error in ${editIndex !== null ? 'handleSubmitEdit' : 'handleSubmit'}:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: 'I apologize, but I encountered an error processing your request. Please try again.',
+          content: `I apologize, but I encountered an error processing your request. Please try again.\n\nError: ${errorMessage}`,
           messageId: getNextMessageId()
         }
       ]);
@@ -3792,10 +3817,39 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Load chat when currentChatId changes
   useEffect(() => {
+    console.log('currentChatId changed to:', currentChatId);
     if (currentChatId) {
-      loadChat(currentChatId);
+      // Only load if we're not currently processing a message
+      if (!isProcessing && !isStreamingComplete) {
+        console.log('Loading chat due to currentChatId change - this should only happen when switching chats');
+        loadChat(currentChatId);
+      } else {
+        console.log('Skipping chat load - currently processing or streaming');
+      }
     }
-  }, [currentChatId]);
+  }, [currentChatId, isProcessing, isStreamingComplete]);
+
+  // Debug: log when messages change
+  useEffect(() => {
+    console.log('Messages state changed:', messages.length, 'messages');
+    if (messages.length > 0) {
+      console.log('Message roles:', messages.map(m => m.role));
+      console.log('Last message content preview:', messages[messages.length - 1].content?.substring(0, 100));
+    }
+  }, [messages]);
+
+  // Initialize message ID counter
+  useEffect(() => {
+    if (!window.highestMessageId) {
+      // Find the highest message ID from existing messages
+      const highestId = messages.reduce((max, msg) => {
+        const msgId = Number(msg.messageId || '0');
+        return Math.max(max, msgId);
+      }, 0);
+      window.highestMessageId = highestId;
+      console.log(`Initialized highestMessageId to: ${highestId}`);
+    }
+  }, [messages]);
 
   // Load chats on component mount
   useEffect(() => {
@@ -3845,7 +3899,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const saveBeforeToolExecution = useCallback(async () => {
     if (currentChatId && messages.length > 1) {
       console.log('Saving chat before tool execution (external trigger)');
-      await saveChat(currentChatId, messages, false);
+      // Save with force=true to ensure all messages are preserved during tool execution
+      await saveChat(currentChatId, messages, true);
       return true;
     }
     return false;
@@ -3872,24 +3927,29 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   useEffect(() => {
     if (currentChatId && messages.length > 1) {
       const saveTimer = setTimeout(() => {
-        // Only save if we haven't saved recently
-        if (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) {
+        // Only save if we haven't saved recently and we're not currently streaming
+        if ((!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) && !isStreamingComplete) {
+          console.log('Auto-saving chat due to messages change (not streaming)');
           saveChat(currentChatId, messages);
+        } else {
+          console.log('Skipping auto-save - either too recent or currently streaming');
         }
       }, 5000); // Much longer debounce time as a safety net
       
       return () => clearTimeout(saveTimer);
     }
-  }, [messages, currentChatId]);
+  }, [messages, currentChatId, isStreamingComplete]);
 
   // Listen for save-chat-request events from ToolService
   useEffect(() => {
     const handleSaveChatRequest = (e: CustomEvent) => {
-      if (currentChatId && messages.length > 1) {
-        console.log('Save chat request received from tool service');
+      if (currentChatId && messages.length > 1 && !isStreamingComplete) {
+        console.log('Save chat request received from tool service (not streaming)');
         saveChat(currentChatId, messages);
         // Record that we've saved
         window.lastSaveChatTime = Date.now();
+      } else {
+        console.log('Skipping tool service save request - either no chat ID, not enough messages, or currently streaming');
       }
     };
 
@@ -3950,9 +4010,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     };
     
     console.log(`Message assigned ID: ${formattedMessage.messageId}`);
+    console.log(`Current messages count: ${messages.length}, will be ${messages.length + 1}`);
     
     setMessages(prev => {
       const updatedMessages = [...prev, formattedMessage];
+      console.log(`setMessages callback - prev count: ${prev.length}, new count: ${updatedMessages.length}`);
       
       // Always save the chat after adding a message
       if (currentChatId) {
@@ -3963,10 +4025,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           !!message.tool_call_id || 
           !!message.tool_calls;
           
+        console.log(`Scheduling save for chat ${currentChatId} with ${updatedMessages.length} messages, needsReload: ${needsReload}`);
+        
         // Use a short timeout to let the state update before saving
         setTimeout(() => {
-          saveChat(currentChatId, updatedMessages, needsReload);
+          // Get current messages state to ensure we have the latest
+          setMessages(currentMessages => {
+            saveChat(currentChatId, currentMessages, needsReload);
+            return currentMessages;
+          });
         }, 50);
+      } else {
+        console.warn('No currentChatId when trying to save message');
       }
       
       return updatedMessages;
@@ -4007,7 +4077,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       if (currentChatId) {
         // We don't add the tool result to messages here, we'll do it in processToolCalls
         // But we save the current state to ensure it's persistent
-        saveChat(currentChatId, messages, false);
+        setMessages(currentMessages => {
+          saveChat(currentChatId, currentMessages, false);
+          return currentMessages;
+        });
       }
       
       // Check if this is an error from the tool service
@@ -4078,10 +4151,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Update the processToolCalls function for proper ID handling
   const processToolCalls = async (content: string): Promise<{ hasToolCalls: boolean }> => {
-    // First try to find function calls using regex
-    const functionCallRegex = /function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/g;
-    const matches = content.matchAll(functionCallRegex);
+    // Parse multiple function calls more reliably
+    // Split by "function_call:" and process each one
+    const functionCallParts = content.split('function_call:');
     let processedAnyCalls = false;
+    let hadToolErrors = false; // Track if we had any tool errors
+    
+    // Skip the first part (before any function_call)
+    const functionCallStrings = functionCallParts.slice(1);
     
     // Create a process version to track this specific tool processing operation
     const processVersion = (window.chatSaveVersion || 0) + 1;
@@ -4125,13 +4202,26 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       // Extract all function calls from the content
       const functionCalls: FunctionCall[] = [];
-      const matchArray = Array.from(content.matchAll(functionCallRegex));
       
       // Parse all function calls first
-      for (const match of matchArray) {
+      console.log(`Found ${functionCallStrings.length} function call parts to process`);
+      
+      for (const functionCallPart of functionCallStrings) {
         try {
-          const functionCallStr = match[1];
-          if (!functionCallStr) continue;
+          console.log(`Processing function call part: "${functionCallPart.substring(0, 100)}..."`);
+          
+          // Find the JSON object in this part
+          const jsonMatch = functionCallPart.match(/^\s*({[\s\S]*?})\s*(?=function_call:|$)/);
+          if (!jsonMatch) {
+            console.log('No JSON match found in function call part, skipping');
+            continue;
+          }
+          
+          const functionCallStr = jsonMatch[1];
+          if (!functionCallStr) {
+            console.log('Empty function call string, skipping');
+            continue;
+          }
           
           // Try to parse the function call JSON
           let functionCall: FunctionCall;
@@ -4220,7 +4310,42 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             const validToolNames = ['list_directory', 'list_dir', 'read_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
             
             if (!validToolNames.includes(functionCall.name)) {
-              console.warn(`Invalid tool name: ${functionCall.name}. Cancelling response and retrying.`);
+              console.warn(`Invalid tool name: ${functionCall.name}. This might be due to multiple tool calls being concatenated.`);
+              
+              // Check if this looks like concatenated tool names (more comprehensive detection)
+              const allValidToolNames = ['list_directory', 'list_dir', 'read_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
+              
+              // Check if the name contains multiple valid tool names (indicating concatenation)
+              const detectedTools = allValidToolNames.filter(toolName => 
+                functionCall.name.includes(toolName)
+              );
+              
+              if (detectedTools.length > 1) {
+                console.warn(`Detected concatenated tool names: ${functionCall.name}. This suggests a parsing issue with multiple tool calls.`);
+                console.warn(`Detected individual tools: ${detectedTools.join(', ')}`);
+                console.warn(`This function call will be skipped and marked as an error`);
+                
+                const errorMessage = `Error: Multiple tool calls were concatenated into "${functionCall.name}". Detected tools: ${detectedTools.join(', ')}. Please call tools one at a time.`;
+                
+                // Add a failed tool call message to inform the AI about the issue
+                const failedToolMessage: ExtendedMessage = {
+                  role: 'tool',
+                  content: errorMessage,
+                  tool_call_id: functionCall.id,
+                  messageId: getNextMessageId()
+                };
+                
+                // Add the failed tool call to the conversation
+                setMessages(prev => [...prev, failedToolMessage]);
+                
+                // Mark that we processed a tool call (even though it failed)
+                processedAnyCalls = true;
+                hadToolErrors = true;
+                
+                // Don't abort the response, just skip this tool call
+                console.log(`Skipping concatenated tool call: ${functionCall.name}`);
+                continue;
+              }
               
               // Find the most similar valid tool name
               const suggestions = validToolNames.filter(validName => 
@@ -4249,27 +4374,28 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               // Add the failed tool call to the conversation
               setMessages(prev => [...prev, failedToolMessage]);
               
-              // Save the chat with the error message before continuing
-              if (currentChatId) {
-                // Get current messages including the error we just added
-                let currentMessages: ExtendedMessage[] = [];
-                setMessages(prev => {
-                  currentMessages = [...prev, failedToolMessage];
-                  return prev;
-                });
-                
-                // Allow state update to complete
-                await new Promise(resolve => setTimeout(resolve, 50));
-                
-                await saveChat(currentChatId, currentMessages, false);
-              }
+                              // Save the chat with the error message before continuing
+                if (currentChatId) {
+                  // Use setTimeout to ensure the message is added to state before saving
+                  setTimeout(async () => {
+                    try {
+                      setMessages(currentMessages => {
+                        saveChat(currentChatId, currentMessages, true);
+                        return currentMessages;
+                      });
+                      console.log('Saved chat after adding tool error message');
+                    } catch (error) {
+                      console.error('Failed to save chat after tool error:', error);
+                    }
+                  }, 100);
+                }
               
               // Continue the conversation to let the AI retry
               setTimeout(() => {
                 continueLLMConversation();
               }, 100);
               
-              return { hasToolCalls: false };
+              // Don't return early - let the function continue to the normal continuation logic
             }
             
             // Validate that required arguments are present
@@ -4325,25 +4451,30 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 
                 // Save the chat with the error message before continuing
                 if (currentChatId) {
-                  // Get current messages including the error we just added
-                  let currentMessages: ExtendedMessage[] = [];
-                  setMessages(prev => {
-                    currentMessages = [...prev, failedToolMessage];
-                    return prev;
-                  });
-                  
-                  // Allow state update to complete
-                  await new Promise(resolve => setTimeout(resolve, 50));
-                  
-                  await saveChat(currentChatId, currentMessages, false);
+                  // Use setTimeout to ensure the message is added to state before saving
+                  setTimeout(async () => {
+                    try {
+                      setMessages(currentMessages => {
+                        saveChat(currentChatId, currentMessages, true);
+                        return currentMessages;
+                      });
+                      console.log('Saved chat after adding tool error message');
+                    } catch (error) {
+                      console.error('Failed to save chat after tool error:', error);
+                    }
+                  }, 100);
                 }
+                
+                // Mark that we processed a tool call (even though it failed)
+                processedAnyCalls = true;
+                hadToolErrors = true;
                 
                 // Continue the conversation to let the AI retry
                 setTimeout(() => {
                   continueLLMConversation();
                 }, 100);
                 
-                return { hasToolCalls: false };
+                // Don't return early - let the function continue to the normal continuation logic
               }
             }
             
@@ -4361,6 +4492,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           console.error("Error parsing function call:", error);
         }
       }
+      
+      // Debug summary of what we found
+      console.log(`Function call parsing summary:`);
+      console.log(`- Total function call parts found: ${functionCallStrings.length}`);
+      console.log(`- Valid function calls parsed: ${functionCalls.length}`);
+      console.log(`- Had tool errors: ${hadToolErrors}`);
+      console.log(`- Processed any calls: ${processedAnyCalls}`);
       
       // Update the assistant message with proper tool_calls first
       if (functionCalls.length > 0) {
@@ -4454,14 +4592,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      // Process each tool call sequentially
-      for (const functionCall of functionCalls) {
-        try {
-          // Skip if already processed
-          if (processedToolCallIds.has(functionCall.id)) {
-            console.log(`Skipping duplicate tool call: ${functionCall.name} (ID: ${functionCall.id})`);
-            continue;
-          }
+      // Process each tool call sequentially (can be changed to parallel if needed)
+      const processSequentially = true; // Set to false to process in parallel
+      
+      if (processSequentially) {
+        // Process tools one by one
+        for (const functionCall of functionCalls) {
+          try {
+            // Skip if already processed
+            if (processedToolCallIds.has(functionCall.id)) {
+              console.log(`Skipping duplicate tool call: ${functionCall.name} (ID: ${functionCall.id})`);
+              continue;
+            }
           
           // Add to processed set
           processedToolCallIds.add(functionCall.id);
@@ -4505,6 +4647,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   setTimeout(() => {
                     console.log(`Saving chat with tool message content: "${toolMessage.content}"`);
                     window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                    // Save with force=true to ensure all messages are preserved
                     saveChat(currentChatId, updatedMessages, true);
                   }, 0);
                 }
@@ -4522,24 +4665,84 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           }
         } catch (error) {
           console.error(`Error executing tool ${functionCall.name}:`, error);
-    } finally {
+        } finally {
           // Reset executing flag
           setIsExecutingTool(false);
+        }
       }
-    }
-    } finally {
-    // Continue the conversation if we processed any tool calls
-    if (processedAnyCalls) {
-      console.log("Tool calls processed, continuing conversation...");
       
-        // Continue conversation with slight delay
+      } else {
+        // Process tools in parallel (experimental)
+        console.log(`Processing ${functionCalls.length} tools in parallel`);
+        
+        const toolPromises = functionCalls.map(async (functionCall) => {
+          try {
+            // Skip if already processed
+            if (processedToolCallIds.has(functionCall.id)) {
+              console.log(`Skipping duplicate tool call: ${functionCall.name} (ID: ${functionCall.id})`);
+              return null;
+            }
+            
+            // Add to processed set
+            processedToolCallIds.add(functionCall.id);
+            
+            console.log(`Executing tool in parallel: ${functionCall.name} (ID: ${functionCall.id})`);
+            
+            // Execute the tool call
+            const result = await handleToolCall(functionCall);
+            
+            if (result) {
+              // Add the tool result to messages
+              setMessages(prev => {
+                const toolMessage: ExtendedMessage = result;
+                const updatedMessages = [...prev, toolMessage];
+                
+                // Save chat after adding tool result
+                if (currentChatId) {
+                  setTimeout(() => {
+                    window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                    saveChat(currentChatId, updatedMessages, true);
+                  }, 0);
+                }
+                
+                return updatedMessages;
+              });
+              
+              console.log(`Added parallel tool result for ${functionCall.name} (ID: ${functionCall.id})`);
+              return result;
+            }
+          } catch (error) {
+            console.error(`Error executing parallel tool ${functionCall.name}:`, error);
+          }
+        });
+        
+        // Wait for all tools to complete
+        const results = await Promise.all(toolPromises);
+        const successfulResults = results.filter(r => r !== null);
+        
+        if (successfulResults.length > 0) {
+          processedAnyCalls = true;
+        }
+      }
+    } finally {
+    // Continue the conversation if we processed any tool calls (including errors)
+    if (processedAnyCalls) {
+      console.log(`Tool calls processed (${hadToolErrors ? 'with errors' : 'successfully'}), continuing conversation...`);
+      
+      // Continue conversation with slight delay
       setTimeout(() => {
         continueLLMConversation();
-        }, 300);
+      }, 300);
+    } else if (hadToolErrors) {
+      // Even if no valid tool calls were processed, if we had errors, we should continue
+      console.log("No valid tool calls processed, but had tool errors - continuing conversation anyway");
+      setTimeout(() => {
+        continueLLMConversation();
+      }, 300);
     } else {
-        console.log("No tool calls processed");
+      console.log("No tool calls processed and no errors");
       setIsInToolExecutionChain(false);
-      }
+    }
     }
     
     return { hasToolCalls: processedAnyCalls };
@@ -4558,20 +4761,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       console.log(`Starting to process conversation continuation (version: ${continuationVersion})`);
       
-      // First, make sure we have the most up-to-date chat data
-      if (currentChatId) {
-        // Load the chat with fresh data from disk with force reload
-        await loadChat(currentChatId, true);
-        console.log(`Reloaded chat for continuation (version: ${continuationVersion})`);
-        
-        // Check if our version is still valid
-        if ((window.chatSaveVersion || 0) !== continuationVersion) {
-          console.log(`Abandoning continuation - version changed during loading: ${window.chatSaveVersion} != ${continuationVersion}`);
-          setIsProcessing(false);
-          setIsInToolExecutionChain(false);
-          return;
-        }
-      }
+      // Don't reload chat from disk during continuation as it might overwrite recent error messages
+      // Instead, use the current state which should have the latest messages including any error messages
+      console.log(`Continuing conversation with current state (version: ${continuationVersion})`);
       
       // Don't filter or truncate the messages at all - use ALL messages
       // This ensures we have the complete context with all tool calls and results
@@ -4985,20 +5177,19 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (currentChatId) {
           console.log('AI response completed - saving final chat state');
           
-          // Use a callback to get the current messages state
-          setMessages(prevMessages => {
-            // Save chat without reload to prevent flickering
-            // Only reload if the message contains tool calls
-            const containsToolCalls = currentContent.includes('function_call:') || 
-                                     currentContent.includes('<function_calls>');
-            
-            // Save in the next tick to ensure state is updated
-            setTimeout(() => {
-              saveChat(currentChatId, prevMessages, containsToolCalls);
-            }, 0);
-            
-            return prevMessages;
-          });
+          // Save chat after the messages state has been updated
+          // We'll do this after the onStreamComplete callback finishes updating the state
+          const containsToolCalls = currentContent.includes('function_call:') || 
+                                   currentContent.includes('<function_calls>');
+          
+          // Delay the save to ensure the message state is fully updated from streaming
+          setTimeout(() => {
+            console.log('Saving chat after streaming completion with current messages state');
+            setMessages(currentMessages => {
+              saveChat(currentChatId, currentMessages, containsToolCalls);
+              return currentMessages;
+            });
+          }, 100); // Small delay to ensure onStreamComplete has finished
         }
         
         // Process any final tool calls after streaming is complete
@@ -5065,13 +5256,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             // Update the existing assistant message with error content
             newMessages[lastAssistantMessageIndex] = {
               ...newMessages[lastAssistantMessageIndex],
-              content: "I apologize, but I encountered an error while trying to continue our conversation."
+              content: "I apologize, but I encountered an error while trying to continue our conversation.\n\nError: Failed to continue conversation due to processing issues."
             };
           } else {
             // Add a new error message if no suitable assistant message found
             newMessages.push({
               role: 'assistant' as const,
-              content: "I apologize, but I encountered an error while trying to continue our conversation.",
+              content: "I apologize, but I encountered an error while trying to continue our conversation.\n\nError: Failed to continue conversation due to processing issues.",
               messageId: getNextMessageId()
             });
           }
@@ -5091,11 +5282,53 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setIsInToolExecutionChain(false);
       setThinking('');
       
+      const errorMessage = error instanceof Error ? error.message : String(error);
       addMessage({
         role: 'assistant',
-        content: "I apologize, but I'm having trouble processing your request. Please try again."
+        content: `I apologize, but I'm having trouble processing your request. Please try again.\n\nError: ${errorMessage}`
       });
     }
+  };
+
+  // Handle continue from error message
+  const handleContinueFromError = async (messageIndex: number) => {
+    try {
+      setIsProcessing(true);
+      
+      // Find the error message and the last user message before it
+      const errorMessageIndex = messageIndex + 1; // +1 because we slice messages from index 1
+      const lastUserMessageIndex = errorMessageIndex - 1;
+      
+      // Get the last user message content
+      const lastUserMessage = messages[lastUserMessageIndex];
+      if (lastUserMessage && lastUserMessage.role === 'user') {
+        // Remove the error message
+        setMessages(prev => prev.filter((_, i) => i !== errorMessageIndex));
+        
+        // Retry the conversation with the last user message
+        await processUserMessage(lastUserMessage.content, lastUserMessage.attachments || []);
+      }
+    } catch (error) {
+      console.error('Error continuing from error message:', error);
+      setIsProcessing(false);
+    }
+  };
+
+  // Check if this is an error message
+  const isErrorMessage = (content: string): boolean => {
+    const errorPatterns = [
+      /I apologize, but I encountered an error/,
+      /I apologize, but an error occurred/,
+      /I'm having trouble processing your request/,
+      /encountered an error while trying to continue/,
+      /Error processing your request/,
+      /Failed to process/,
+      /An error occurred/,
+      /Operation cancelled by user/,
+      /but encountered an error:/
+    ];
+    
+    return errorPatterns.some(pattern => pattern.test(content));
   };
 
   // Update the message rendering to handle the new message structure
@@ -5108,6 +5341,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     
     // Calculate if this message should be faded
     const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+    
+    // Check if this is an error message
+    const messageContent = typeof message.content === 'string' ? message.content : '';
+    const isError = isErrorMessage(messageContent);
     
     // For assistant messages with function calls, process them but clean the content for display
     if (message.role === 'assistant') {
@@ -5142,7 +5379,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   transition: 'opacity 0.2s ease',
                 }}
               >
-                <MessageRenderer message={cleanedMessage} isAnyProcessing={isAnyProcessing} />
+                <MessageRenderer 
+                  message={cleanedMessage} 
+                  isAnyProcessing={isAnyProcessing}
+                  onContinue={handleContinueFromError}
+                  messageIndex={index}
+                />
               </div>
             );
           }
@@ -5164,7 +5406,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           transition: 'opacity 0.2s ease',
         }}
       >
-        <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
+        <MessageRenderer 
+          message={message} 
+          isAnyProcessing={isAnyProcessing}
+          onContinue={handleContinueFromError}
+          messageIndex={index}
+        />
       </div>
     );
     }
@@ -5621,19 +5868,74 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           {message.role === 'assistant' && (
             <div
               style={{
-                backgroundColor: 'var(--bg-secondary)',
+                backgroundColor: isError ? 'var(--error-bg)' : 'var(--bg-secondary)',
                 padding: '10px',
                 borderRadius: '10px',
                 marginBottom: '8px',
                 position: 'relative',
+                borderLeft: isError ? '4px solid var(--error-color)' : 'none',
               }}
             >
-              <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
+              <MessageRenderer 
+                message={message} 
+                isAnyProcessing={isAnyProcessing}
+                onContinue={handleContinueFromError}
+                messageIndex={index}
+              />
+              
+              {/* Continue button for error messages */}
+              {isError && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    gap: '8px',
+                  }}
+                >
+                  <button
+                    onClick={() => handleContinueFromError(index)}
+                    disabled={isAnyProcessing}
+                    style={{
+                      background: 'var(--accent-color)',
+                      border: '1px solid var(--accent-color)',
+                      color: 'white',
+                      cursor: isAnyProcessing ? 'not-allowed' : 'pointer',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      transition: 'all 0.2s ease',
+                      opacity: isAnyProcessing ? 0.6 : 1,
+                    }}
+                    title={isAnyProcessing ? "Processing..." : "Retry this conversation"}
+                    onMouseEnter={(e) => {
+                      if (!isAnyProcessing) {
+                        e.currentTarget.style.background = 'var(--accent-hover)';
+                        e.currentTarget.style.borderColor = 'var(--accent-hover)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isAnyProcessing) {
+                        e.currentTarget.style.background = 'var(--accent-color)';
+                        e.currentTarget.style.borderColor = 'var(--accent-color)';
+                      }
+                    }}
+                  >
+                    {isAnyProcessing ? 'Processing...' : 'Continue'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {/* User message */}
           {message.role === 'user' && (
-            <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
+            <MessageRenderer 
+              message={message} 
+              isAnyProcessing={isAnyProcessing}
+              onContinue={handleContinueFromError}
+              messageIndex={index}
+            />
           )}
         </div>
         {message.role === 'user' && (
@@ -6010,7 +6312,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           </div>
         ) : (
           <>
-            {messages.slice(1).map((message, index) => renderMessage(message, index))}
+            {messages.slice(1).map((message, index) => (
+              <div key={message.messageId || `message-${index}`}>
+                {renderMessage(message, index)}
+              </div>
+            ))}
           </>
         )}
         <div ref={messagesEndRef} />

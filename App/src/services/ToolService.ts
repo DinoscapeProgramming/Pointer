@@ -276,29 +276,29 @@ export class ToolService {
 
   /**
    * Normalize parameters for backend tools to ensure expected keys are present
+   * No fallbacks - return errors for missing required parameters
    */
   private normalizeParamsForBackend(backendToolName: string, params: any): any {
     const p = { ...(params || {}) };
 
     if (backendToolName === 'list_directory') {
-      // Prefer explicit directory_path; support relative_workspace_path and file_path fallbacks
+      // Only use directory_path, no fallbacks
       if (!p.directory_path) {
-        if (p.relative_workspace_path) p.directory_path = p.relative_workspace_path;
-        else if (p.file_path) p.directory_path = p.file_path;
+        throw new Error(`Missing required parameter 'directory_path' for list_directory tool`);
       }
-      // Remove aliases to avoid backend "unexpected keyword" errors
-      delete p.relative_workspace_path;
-      delete p.file_path;
+      // Remove any unexpected parameters to avoid backend errors
+      const cleanParams: any = { directory_path: p.directory_path };
+      return cleanParams;
     }
 
     if (backendToolName === 'read_file') {
-      // Prefer target_file; support file_path and directory_path fallbacks
+      // Only use target_file, no fallbacks
       if (!p.target_file) {
-        if (p.file_path) p.target_file = p.file_path;
-        else if (p.directory_path) p.target_file = p.directory_path;
+        throw new Error(`Missing required parameter 'target_file' for read_file tool`);
       }
-      delete p.file_path;
-      delete p.directory_path;
+      // Remove any unexpected parameters to avoid backend errors
+      const cleanParams: any = { target_file: p.target_file };
+      return cleanParams;
     }
 
     // run_terminal_cmd: ensure timeout is a number

@@ -21,6 +21,7 @@ aiohttp==3.8.5
 httpx==0.25.0
 aiofiles==24.1.0
 
+
 # For OS-specific dependencies, install the appropriate file using:
 # Windows: pip install -r requirements_windows.txt
 # macOS: pip install -r requirements_macos.txt

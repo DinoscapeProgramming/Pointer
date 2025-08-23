@@ -16,6 +16,7 @@ A modern, AI-powered code editor built with Electron, React, TypeScript, and Pyt
 - **Integrated AI Chat** - Built-in AI assistant for code help and explanations
 - **Code Completion** - AI-powered autocomplete and suggestions
 - **Code Analysis** - Intelligent code review and optimization suggestions
+- **Web Search Integration** - Real-time web search using Google Search Results API
 
 ### 📁 **Advanced File Management**
 - **File Explorer** - Full-featured file tree with create/edit/delete
@@ -228,6 +229,24 @@ Configure Discord integration by editing settings in the application or manually
   "button1Url": "https://pointr.sh"
 }
 ```
+
+### Web Search Integration
+
+Enable real-time web search functionality using Startpage scraping:
+
+**Features**:
+- Real-time Google search results (via Startpage)
+- No API keys or rate limits required
+- Privacy-focused search (no tracking)
+- Works immediately without setup
+
+**Test Integration**:
+```bash
+cd backend
+python test_startpage_scraping.py
+```
+
+For detailed implementation information, see `backend/WEB_SEARCH_IMPLEMENTATION.md`
 
 ## 🛠️ Troubleshooting
 

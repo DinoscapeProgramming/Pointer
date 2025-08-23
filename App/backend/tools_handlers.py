@@ -248,19 +248,19 @@ async def list_directory(directory_path: str) -> Dict[str, Any]:
         }
 
 
-async def web_search(search_term: str = None, query: str = None, num_results: int = 3) -> Dict[str, Any]:
+async def web_search(search_term: str = None, query: str = None, num_results: int = 5, location: str = None) -> Dict[str, Any]:
     """
-    Simulated web search for information.
+    Web search using Startpage (Google results without tracking).
     
     Args:
         search_term: Search query (preferred)
         query: Alternative search query
-        num_results: Number of results to return
+        num_results: Number of results to return (max 20)
+        location: Optional location for local search (not fully supported with scraping)
         
     Returns:
         Dictionary with search results
     """
-    # Use search_term if provided, otherwise use query
     actual_query = search_term if search_term is not None else query
     
     if actual_query is None:
@@ -269,43 +269,250 @@ async def web_search(search_term: str = None, query: str = None, num_results: in
             "error": "No search query provided"
         }
     
-    # This is a mock implementation - in a production environment,
-    # you would connect to a real search API
-    mock_results = [
-        {
-            "title": f"Result for {actual_query} - Example 1",
-            "url": f"https://example.com/search?q={actual_query.replace(' ', '+')}",
-            "snippet": f"This is a sample search result for the query '{actual_query}'. It demonstrates how the web search tool works."
-        },
-        {
-            "title": f"Another result for {actual_query}",
-            "url": f"https://example.org/results?query={actual_query.replace(' ', '+')}",
-            "snippet": f"Another example result for '{actual_query}'. In a real implementation, this would contain actual search results."
-        },
-        {
-            "title": f"{actual_query} - Documentation",
-            "url": f"https://docs.example.com/{actual_query.replace(' ', '-').lower()}",
-            "snippet": f"Documentation related to {actual_query}. Contains guides, tutorials and reference materials."
-        },
-        {
-            "title": f"Learn about {actual_query}",
-            "url": f"https://learn.example.edu/topics/{actual_query.replace(' ', '_').lower()}",
-            "snippet": f"Educational resources about {actual_query} with examples and exercises."
+    try:
+        import aiohttp
+        import re
+        from urllib.parse import unquote, urljoin
+        
+        # Limit results to reasonable number for scraping
+        num_results = min(num_results, 20)
+        
+        # Startpage search URL
+        search_url = "https://www.startpage.com/sp/search"
+        search_params = {
+            "query": actual_query,
+            "cat": "web",  # Web search category
+            "language": "english",
+            "region": "us"
         }
-    ]
+        
+        # Add location if provided (though limited with scraping)
+        if location:
+            search_params["region"] = "us"  # Default to US for now
+        
+        # Browser-like headers to avoid blocking
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Referer': 'https://www.startpage.com/',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(search_url, params=search_params, headers=headers, timeout=30) as response:
+                if response.status != 200:
+                    return {
+                        "success": False,
+                        "error": f"HTTP {response.status}: {response.reason}"
+                    }
+                
+                html_content = await response.text()
+                
+                # Parse search results from HTML
+                results = await _parse_startpage_results(html_content, actual_query, num_results)
+                
+                if results["success"]:
+                    return {
+                        "success": True,
+                        "query": actual_query,
+                        "num_results": len(results["results"]),
+                        "total_results": results.get("total_results", "Unknown"),
+                        "search_time": "Unknown",
+                        "results": results["results"],
+                        "source": "Startpage (Google Results)"
+                    }
+                else:
+                    return results
+                    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Search failed: {str(e)}"
+        }
+
+
+async def _parse_startpage_results(html_content: str, query: str, num_results: int) -> Dict[str, Any]:
+    """
+    Parse Startpage HTML content to extract search results.
     
-    # Simulate network latency
-    await asyncio.sleep(0.5)
-    
-    # Limit results based on num_results
-    limited_results = mock_results[:min(num_results, len(mock_results))]
-    
-    return {
-        "success": True,
-        "query": actual_query,
-        "num_results": len(limited_results),
-        "results": limited_results
-    }
+    Args:
+        html_content: Raw HTML from Startpage
+        query: Original search query
+        num_results: Number of results to extract
+        
+    Returns:
+        Dictionary with parsed results
+    """
+    try:
+        import re
+        from urllib.parse import unquote, urljoin
+        
+        results = []
+        
+        # Look for search result patterns in Startpage HTML
+        # Startpage typically has results in divs with specific classes or patterns
+        
+        # Pattern 1: Look for result containers (common Startpage patterns)
+        result_patterns = [
+            # Pattern for result containers
+            r'<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>',
+            # Pattern for result links
+            r'<a[^>]*href="[^"]*"[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</a>',
+            # Pattern for result titles
+            r'<h3[^>]*>(.*?)</h3>',
+            # Pattern for result snippets
+            r'<p[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</p>'
+        ]
+        
+        # Extract URLs from the page
+        url_pattern = r'href="([^"]*)"'
+        urls = re.findall(url_pattern, html_content)
+        
+        # Extract titles
+        title_pattern = r'<h3[^>]*>(.*?)</h3>'
+        titles = re.findall(title_pattern, html_content)
+        
+        # Extract snippets/descriptions
+        snippet_pattern = r'<p[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</p>'
+        snippets = re.findall(snippet_pattern, html_content)
+        
+        # Alternative snippet patterns
+        if not snippets:
+            snippet_pattern = r'<span[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</span>'
+            snippets = re.findall(snippet_pattern, html_content)
+        
+        # If still no snippets, try broader pattern
+        if not snippets:
+            snippet_pattern = r'<p[^>]*>(.*?)</p>'
+            snippets = re.findall(snippet_pattern, html_content)
+        
+        # Clean and filter results
+        cleaned_urls = []
+        for url in urls:
+            # Skip internal Startpage URLs and non-http URLs
+            if (url.startswith('http') and 
+                not url.startswith('https://www.startpage.com') and
+                not url.startswith('https://startpage.com') and
+                'support.startpage.com' not in url):
+                cleaned_urls.append(url)
+        
+        # Clean titles and snippets
+        cleaned_titles = []
+        for title in titles:
+            # Remove HTML tags
+            clean_title = re.sub(r'<[^>]+>', '', title).strip()
+            if clean_title and len(clean_title) > 5:  # Filter out very short titles
+                cleaned_titles.append(clean_title)
+        
+        cleaned_snippets = []
+        for snippet in snippets:
+            # Remove HTML tags
+            clean_snippet = re.sub(r'<[^>]+>', '', snippet).strip()
+            if clean_snippet and len(clean_snippet) > 20:  # Filter out very short snippets
+                cleaned_snippets.append(clean_snippet)
+        
+        # Combine results
+        max_results = min(num_results, len(cleaned_urls), len(cleaned_titles))
+        
+        for i in range(max_results):
+            title = cleaned_titles[i] if i < len(cleaned_titles) else f"Result {i+1}"
+            url = cleaned_urls[i] if i < len(cleaned_urls) else ""
+            
+            # Skip results with "fully anonymous" title and support.startpage.com URLs
+            if title.lower() == "fully anonymous" and "support.startpage.com" in url:
+                continue
+                
+            # Skip Startpage internal navigation elements
+            if title.lower() == "startpage search results":
+                continue
+                
+            result = {
+                "title": title,
+                "url": url,
+                "snippet": cleaned_snippets[i] if i < len(cleaned_snippets) else "No description available",
+                "position": len(results) + 1,  # Adjust position since we might skip some
+                "type": "organic_result"
+            }
+            results.append(result)
+        
+        # If we didn't get enough results with the above patterns, try alternative approach
+        if len(results) < num_results:
+            # Look for any links that might be search results
+            link_pattern = r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
+            links = re.findall(link_pattern, html_content)
+            
+            for href, text in links:
+                if (href.startswith('http') and 
+                    not href.startswith('https://www.startpage.com') and
+                    not href.startswith('https://startpage.com') and
+                    'support.startpage.com' not in href and
+                    len(text.strip()) > 10):
+                    
+                    # Skip results with "fully anonymous" title and support.startpage.com URLs
+                    if text.strip().lower() == "fully anonymous" and "support.startpage.com" in href:
+                        continue
+                        
+                    # Skip Startpage internal navigation elements
+                    if text.strip().lower() == "startpage search results":
+                        continue
+                    
+                    if len(results) >= num_results:
+                        break
+                    
+                    result = {
+                        "title": text.strip()[:100],  # Limit title length
+                        "url": href,
+                        "snippet": "Result extracted from search page",
+                        "position": len(results) + 1,
+                        "type": "extracted_result"
+                    }
+                    results.append(result)
+        
+        # If we still don't have results, try to extract from page structure
+        if not results:
+            # Look for any meaningful text that might be search results
+            text_pattern = r'>([^<]{20,})<'
+            text_matches = re.findall(text_pattern, html_content)
+            
+            for i, text in enumerate(text_matches[:num_results]):
+                if len(text.strip()) > 20:
+                    # Skip Startpage internal navigation elements
+                    if text.strip().lower() == "startpage search results":
+                        continue
+                        
+                    result = {
+                        "title": text.strip()[:100],
+                        "url": "",
+                        "snippet": text.strip()[:200],
+                        "position": len(results) + 1,  # Adjust position since we might skip some
+                        "type": "text_extracted"
+                    }
+                    results.append(result)
+        
+        if results:
+            return {
+                "success": True,
+                "results": results[:num_results],
+                "total_results": len(results)
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No search results found in the page content"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to parse search results: {str(e)}"
+        }
 
 
 async def fetch_webpage(url: str) -> Dict[str, Any]:
@@ -1200,7 +1407,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "web_search",
-        "description": "Search the web for information",
+        "description": "Search the web for information using Startpage (Google results without tracking)",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1212,9 +1419,13 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Alternative search query (search_term takes precedence)"
                 },
-                "num_results": {
-                    "type": "integer",
-                    "description": "Number of results to return (default: 3)"
+                        "num_results": {
+            "type": "integer",
+            "description": "Number of results to return (default: 5, max: 20)"
+        },
+                "location": {
+                    "type": "string",
+                    "description": "Optional location for local search (limited support with scraping)"
                 }
             },
             "required": ["search_term"]
