@@ -3,6 +3,7 @@ import lmStudio from './LMStudioService';
 import { FileChangeEventService } from './FileChangeEventService';
 import { cleanAIResponse } from '../utils/textUtils';
 import { PathConfig } from '../config/paths';
+import { FileSystemItem } from '../types';
 
 interface FileOperation {
   path: string;
@@ -444,7 +445,7 @@ Return ONLY the final formatted code without any explanations. The code should b
       // Merge the states more carefully
       if (window.fileSystem) {
         // Create a new merged state
-        const mergedItems = { ...window.fileSystem.items };
+        const mergedItems: Record<string, FileSystemItem> = { ...window.fileSystem };
         
         // Preserve any items that have active tabs
         Object.entries(currentItems).forEach(([id, item]) => {
@@ -454,7 +455,7 @@ Return ONLY the final formatted code without any explanations. The code should b
         });
         
         // Update the file system with merged state
-        window.fileSystem.items = mergedItems;
+        window.fileSystem = mergedItems;
       }
       
       // Get current directory and reload its contents
@@ -639,7 +640,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
                     const currentSettings = await FileSystemService.readSettingsFiles(settingsPath);
                     if (currentSettings.success && currentSettings.settings.models) {
                       currentSettings.settings.models[assignedModelId].id = modelId;
-                      await FileSystemService.writeSettingsFiles(settingsPath, currentSettings.settings);
+                      await FileSystemService.saveSettingsFiles(settingsPath, currentSettings.settings);
                       console.log(`Updated settings with discovered model ID: ${modelId}`);
                     }
                   } catch (updateError) {

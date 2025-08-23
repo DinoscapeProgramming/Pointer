@@ -98,7 +98,7 @@ export function throttle<T extends (...args: any[]) => any>(
       timeoutId = setTimeout(() => {
         func(...args);
         lastExecTime = performance.now();
-      }, delay - (currentTime - lastExecTime));
+      }, delay - (currentTime - lastExecTime)) as unknown as number;
     }
   };
 }
@@ -117,6 +117,6 @@ export function debounce<T extends (...args: any[]) => any>(
       clearTimeout(timeoutId);
     }
     
-    timeoutId = setTimeout(() => func(...args), delay);
+    timeoutId = setTimeout(() => func(...args), delay) as unknown as number;
   };
 } 

@@ -62,7 +62,7 @@ const VirtualizedChatMessages = memo(({
       let timeoutId: number;
       return (e: React.UIEvent<HTMLDivElement>) => {
         clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => handleScroll(e), 16); // ~60fps
+        timeoutId = setTimeout(() => handleScroll(e), 16) as unknown as number; // ~60fps
       };
     },
     [handleScroll]

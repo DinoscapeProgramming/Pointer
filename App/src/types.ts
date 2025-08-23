@@ -46,8 +46,10 @@ export interface Message {
   tool_call_id?: string;
   tool_calls?: Array<{
     id: string;
-    type: 'function';
-    function: {
+    type?: 'function';
+    name?: string;
+    arguments?: string | object;
+    function?: {
       name: string;
       arguments: string;
     };

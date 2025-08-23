@@ -1247,10 +1247,10 @@ const App: React.FC = () => {
 
   return () => {
     window.fileSystem = undefined;
-    window.getCurrentFile = null;
-    window.reloadFileContent = null;
-    window.applyCustomTheme = null;
-    window.loadSettings = null;
+    window.getCurrentFile = undefined;
+    window.reloadFileContent = undefined;
+    window.applyCustomTheme = undefined;
+    window.loadSettings = undefined;
     window.removeEventListener('openFile', handleOpenFileEvent as EventListener);
   };
   }, [fileSystem, reloadFileContent, applyCustomTheme, loadSettings]);
