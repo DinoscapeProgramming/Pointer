@@ -2592,7 +2592,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           if (entry) {
             onResize(entry.contentRect.width);
           }
-        }, 50);
+        }, 50) as unknown as number;
       });
       
       observer.observe(containerRef.current);
@@ -5526,7 +5526,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             ?.tool_calls?.find(tc => tc.id === message.tool_call_id);
             
           if (toolCall) {
-            toolName = toolCall.name;
+            toolName = toolCall.name || toolCall.function?.name || 'unknown';
             
             // Store the tool arguments
             toolArgs = typeof toolCall.arguments === 'string' 
@@ -6074,7 +6074,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     // Debounce the auto-resize to avoid excessive calls during typing
     timeoutId = setTimeout(() => {
       autoResizeTextarea();
-    }, 100);
+    }, 100) as unknown as number;
     
     return () => clearTimeout(timeoutId);
   }, [input, autoResizeTextarea]);

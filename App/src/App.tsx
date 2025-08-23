@@ -1247,7 +1247,7 @@ const App: React.FC = () => {
 
   return () => {
     window.fileSystem = undefined;
-    window.getCurrentFile = undefined;
+    window.getCurrentFile = null;
     window.reloadFileContent = undefined;
     window.applyCustomTheme = undefined;
     window.loadSettings = undefined;

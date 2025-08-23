@@ -450,7 +450,7 @@ Return ONLY the final formatted code without any explanations. The code should b
         // Preserve any items that have active tabs
         Object.entries(currentItems).forEach(([id, item]) => {
           if (id.startsWith('file_') || id === 'welcome') {
-            mergedItems[id] = item;
+            mergedItems[id] = item as FileSystemItem;
           }
         });
         
