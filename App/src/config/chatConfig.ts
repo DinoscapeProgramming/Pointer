@@ -10,14 +10,9 @@ export interface AttachedFile {
 // Extend the Message interface to include attachments
 export interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
-  tool_call_id?: string;
   id?: string; // Unique message identifier
   messageId?: string; // Change from number to string for UUIDs
-  tool_calls?: Array<{
-    id: string;
-    name: string;
-    arguments: string | object;
-  }>;
+  timestamp?: string;
 }
 
 // Simplified system message

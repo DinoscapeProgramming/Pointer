@@ -3,18 +3,6 @@ import { Message } from '../types';
 import { AIFileService } from './AIFileService';
 import { ToolService } from './ToolService';
 
-// Extend Message type to include tool_calls for internal use in this service
-interface ExtendedMessage extends Message {
-  tool_calls?: Array<{
-    id: string;
-    type: string;
-    function: {
-      name: string;
-      arguments: string;
-    };
-  }>;
-}
-
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -458,7 +446,7 @@ class LMStudioService {
         } catch (parseError) {
           // If parsing fails, throw an error instead of using fallbacks
           console.error('Failed to parse tool arguments JSON:', parseError);
-          throw new Error(`Invalid tool arguments format: ${parseError.message}`);
+          throw new Error(`Invalid tool arguments format: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
         }
       } else {
         // Arguments is already an object
@@ -616,7 +604,7 @@ class LMStudioService {
     // Track tool calls and responses to ensure proper structure
     const toolCallIds = new Set<string>();
     const toolResponseIds = new Set<string>();
-    const fixedMessages: ExtendedMessage[] = [];
+    const fixedMessages: Message[] = [];
 
     // First, collect all tool response IDs
     for (const msg of messages) {
@@ -627,7 +615,7 @@ class LMStudioService {
 
     // Now process messages and fix issues
     for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i] as ExtendedMessage;
+      const msg = messages[i] as Message;
       
       // For assistant messages with tool_calls, ensure each tool_call has a response
       if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
@@ -679,7 +667,7 @@ class LMStudioService {
           
           // Only create synthetic assistant message if we have a valid tool name
           if (toolName !== 'unknown_function') {
-            const assistantMessage: ExtendedMessage = {
+            const assistantMessage: Message = {
               role: 'assistant',
               content: '',
               tool_calls: [{
@@ -710,7 +698,7 @@ class LMStudioService {
     }
     
     // Now do a final pass to ensure all tool calls have responses
-    const finalMessages: ExtendedMessage[] = [];
+    const finalMessages: Message[] = [];
     const seenToolCallIds = new Set<string>();
     
     for (let i = 0; i < fixedMessages.length; i++) {
@@ -740,7 +728,7 @@ class LMStudioService {
             
             const toolName = toolCall.function?.name || 'unknown_function';
             
-            const dummyResponse: ExtendedMessage = {
+            const dummyResponse: Message = {
               role: 'tool',
               content: `Tool ${toolName} result: {"success":false,"error":"No response available for this tool call"}`,
               tool_call_id: toolCall.id

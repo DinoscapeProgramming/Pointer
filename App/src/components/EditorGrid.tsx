@@ -8,16 +8,12 @@ import { showToast } from '../services/ToastService';
 import { FileViewer, isImageFile, isBinaryFile, isPdfFile, isDatabaseFile } from './FileViewer';
 import Modal from './Modal';
 import PreviewPane from './PreviewPane';
+import lmStudio from '../services/LMStudioService';
 
 // Get access to the App's applyCustomTheme function through the window object
 declare global {
   interface Window {
-    getCurrentFile: () => { path: string; } | null;
     editor?: monaco.editor.IStandaloneCodeEditor;
-    reloadFileContent?: (fileId: string) => Promise<void>;
-    fileSystem?: Record<string, FileSystemItem>;
-    applyCustomTheme?: () => void;
-    loadSettings?: () => Promise<void>;
     editorSettings?: { autoAcceptGhostText: boolean };
   }
 }
@@ -1167,7 +1163,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           }, 2000);
         } else {
           console.error(`Save failed:`, result);
-          throw new Error(result.error || 'Save failed');
+          throw new Error('Save failed');
         }
       } else {
         console.log(`Skipping save - file.path: ${file?.path}, contentChanged: ${contentChangedRef.current}`);
@@ -1848,15 +1844,14 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
               setShowDiff(false);
             }}
             title="AI Assistant"
-          >
-            {renderExplanationContent()}
-          </Modal>
+            content={renderExplanationContent()}
+          />
         )}
       </div>
     );
   } else {
     // Render FileViewer for non-text files
-    return <FileViewer file={file} />;
+    return <FileViewer file={file} fileId={fileId} />;
   }
 };
 
