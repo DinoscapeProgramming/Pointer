@@ -75,7 +75,10 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
           const language = match ? match[1] : '';
           const code = String(children).replace(/\n$/, '');
           
-          if (!props.inline && language) {
+          // Check if this is inline code (single backticks) or block code (triple backticks)
+          const isInline = props.inline || (!className && !code.includes('\n'));
+          
+          if (!isInline && language) {
             return (
               <SyntaxHighlighter
                 style={vscDarkPlus}
@@ -92,10 +95,42 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
             );
           }
           
+          // Inline code styling
+          if (isInline) {
+            return (
+              <code
+                style={{
+                  background: 'var(--bg-code, rgba(0, 0, 0, 0.2))',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  fontSize: '0.9em',
+                  fontFamily: 'var(--font-mono, "Fira Code", "Consolas", monospace)',
+                  color: 'var(--inline-code-color, inherit)',
+                  border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+          
+          // Fallback for block code without language
           return (
-            <code className={className} {...props}>
-              {children}
-            </code>
+            <pre
+              style={{
+                background: 'var(--bg-code, rgba(0, 0, 0, 0.2))',
+                padding: '12px',
+                borderRadius: '4px',
+                fontSize: '13px',
+                fontFamily: 'var(--font-mono, "Fira Code", "Consolas", monospace)',
+                overflow: 'auto',
+                margin: '8px 0',
+                border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
+              }}
+            >
+              <code>{children}</code>
+            </pre>
           );
         },
         // Strikethrough support

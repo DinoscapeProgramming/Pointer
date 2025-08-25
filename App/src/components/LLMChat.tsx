@@ -1768,22 +1768,21 @@ const MessageRenderer: React.FC<{
                     opacity: 0.8
                   }} {...props} />
                 ),
-                code({ className, children, ...props }: CodeProps) {
+                code({ inline, className, children, ...props }: CodeProps) {
                   let content = String(children).replace(/\n$/, '');
                   
-                  // Check if this is a code block (triple backticks) or inline code (single backtick)
-                  const isCodeBlock = content.includes('\n') || content.length > 50;
-                  
-                  if (!isCodeBlock) {
+                  // Use the inline prop from ReactMarkdown to properly distinguish inline vs block code
+                  if (inline) {
                     return (
                       <code
                         style={{
-                          background: 'var(--bg-code)',
+                          background: 'var(--bg-code, rgba(0, 0, 0, 0.2))',
                           padding: '2px 4px',
                           borderRadius: '3px',
                           fontSize: '0.9em',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--inline-code-color, #cc0000)',
+                          fontFamily: 'var(--font-mono, "Fira Code", "Consolas", monospace)',
+                          color: 'var(--inline-code-color, inherit)',
+                          border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
                         }}
                         {...props}
                       >
@@ -2441,6 +2440,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add a state variable to track streaming completion
   const [isStreamingComplete, setIsStreamingComplete] = useState(false);
   
+  // Add a ref to track current messages during streaming to prevent race conditions
+  const currentMessagesRef = useRef<ExtendedMessage[]>([]);
+  
   // Restore tool-related state
   const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
@@ -2592,7 +2594,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           if (entry) {
             onResize(entry.contentRect.width);
           }
-        }, 50) as unknown as number;
+        }, 50);
       });
       
       observer.observe(containerRef.current);
@@ -2672,18 +2674,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Function to save chat
   const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
     try {
-      if (messages.length <= 1) return; // Don't save if only system message exists
+      console.log(`=== SAVE CHAT CALLED ===`);
+      console.log(`ChatId: ${chatId}`);
+      console.log(`Messages count: ${messages.length}`);
+      console.log(`Reload after save: ${reloadAfterSave}`);
       
-      // Prevent multiple simultaneous save operations
-      if (window.isSavingChat) {
-        console.log('Chat save already in progress, skipping this save operation');
+      // Check if we have meaningful messages to save (not just system message)
+      const meaningfulMessages = messages.filter(msg => msg.role !== 'system');
+      if (meaningfulMessages.length === 0) {
+        console.log('Skipping save - no meaningful messages (only system message)');
         return;
       }
-      window.isSavingChat = true;
       
-      console.log(`Saving chat ${chatId} with ${messages.length} messages (reloadAfterSave: ${reloadAfterSave})`);
+      console.log(`Meaningful messages to save: ${meaningfulMessages.length}`);
+      
+      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
       console.log('Messages to save:', messages.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
-      console.log('Save operation called from:', new Error().stack?.split('\n')[2]?.trim());
       
       // Use the simplified ChatService
       const success = await ChatService.saveChat(chatId, messages);
@@ -2702,18 +2708,21 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       }
     } catch (error) {
       console.error('Error in saveChat function:', error);
-    } finally {
-      // Always clear the saving flag
-      window.isSavingChat = false;
     }
   };
 
   // Load chat data with cache-busting
   const loadChat = async (chatId: string, forceReload = false) => {
+    // Don't load chat if streaming is in progress (unless forced)
+    if (isProcessing && !forceReload) {
+      console.log(`Skipping chat load - streaming in progress (forceReload: ${forceReload})`);
+      return;
+    }
+    
     try {
       setIsProcessing(true);
       
-      console.log(`Loading chat ${chatId} (forceReload: ${forceReload}) - Stack trace:`, new Error().stack);
+      console.log(`Loading chat ${chatId} (forceReload: ${forceReload})`);
       
       // Use the simplified ChatService
       const chat = await ChatService.loadChat(chatId);
@@ -2725,7 +2734,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
         
         // Set messages directly
-        console.log(`Setting messages from loaded chat: ${chat.messages.length} messages, current count: ${messages.length}`);
         setMessages(chat.messages);
         console.log(`Loaded chat ${chatId} with ${chat.messages.length} messages`);
       } else {
@@ -2770,6 +2778,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Handle opening chat file in editor
   const handleOpenChatFile = async (chatId: string) => {
     try {
+      console.log(`Opening chat file for chat ID: ${chatId}`);
+      
       // Get the chat file path and content from the backend
       const response = await fetch(`http://localhost:23816/get-chat-file-path?chat_id=${chatId}`);
       if (!response.ok) {
@@ -2780,6 +2790,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const data = await response.json();
       const { file_path: chatFilePath, content: chatContent, filename } = data;
       
+      console.log('Chat file data received:', { chatFilePath, filename, contentLength: chatContent?.length });
+      
       if (!chatFilePath || !chatContent) {
         console.error('No chat file data returned');
         return;
@@ -2788,8 +2800,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Create a file ID for the chat file
       const chatFileId = `chat_${chatId}`;
       
+      console.log('File system availability:', {
+        hasFileSystem: !!(window as any).fileSystem,
+        hasItems: !!(window as any).fileSystem?.items
+      });
+      
       // Add the chat file to the file system and open it in the editor
-      if ((window as any).fileSystem) {
+      if ((window as any).fileSystem && (window as any).fileSystem.items) {
         // Add the chat file to the file system
         ((window as any).fileSystem.items as any)[chatFileId] = {
           id: chatFileId,
@@ -2815,6 +2832,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           });
           window.dispatchEvent(event);
         }
+      } else {
+        // File system not available, use fallback method
+        console.log('File system not available, using fallback method to open chat file');
+        
+        // Dispatch a custom event to open the file
+        const event = new CustomEvent('openFile', {
+          detail: {
+            fileId: chatFileId,
+            content: chatContent,
+            filename: filename || `${chatId}.json`,
+            path: chatFilePath
+          }
+        });
+        window.dispatchEvent(event);
       }
     } catch (error) {
       console.error('Error opening chat file:', error);
@@ -3275,6 +3306,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   ) => {
     if ((!content.trim() && attachments.length === 0) || isProcessing) return;
     
+    // Declare streamingTimeoutId at function scope so it's accessible in finally block
+    let streamingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    
     try {
       setIsProcessing(true);
       setIsStreamingComplete(false); // Reset streaming complete state
@@ -3294,26 +3328,38 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       // Always append user and assistant message for a new turn
       let assistantMessageId = getNextMessageId();
-      let updatedMessages: ExtendedMessage[] = [];
       
-      setMessages(prev => {
-        if (editIndex !== null) {
-          // Editing an existing message: replace and remove all after, then append new assistant
-          updatedMessages = [...prev];
-          updatedMessages[editIndex] = userMessage;
-          updatedMessages = updatedMessages.slice(0, editIndex + 1);
-          updatedMessages.push({ role: 'assistant', content: '', messageId: assistantMessageId });
-        } else {
-          // New message: append user and assistant
-          updatedMessages = [...prev, userMessage, { role: 'assistant', content: '', messageId: assistantMessageId }];
-        }
-        return updatedMessages;
-      });
+      // Create the updated messages array BEFORE calling setMessages
+      let updatedMessages: ExtendedMessage[] = [];
+      if (editIndex !== null) {
+        // Editing an existing message: replace and remove all after, then append new assistant
+        updatedMessages = [...messages];
+        updatedMessages[editIndex] = userMessage;
+        updatedMessages = updatedMessages.slice(0, editIndex + 1);
+        updatedMessages.push({ role: 'assistant', content: '', messageId: assistantMessageId });
+      } else {
+        // New message: append user and assistant
+        updatedMessages = [...messages, userMessage, { role: 'assistant', content: '', messageId: assistantMessageId }];
+      }
+      
+      // Now update the state with the messages we just created
+      setMessages(updatedMessages);
       
       // Save chat history immediately after updating messages
       if (currentChatId) {
         console.log(`Saving chat with ${updatedMessages.length} messages after user input`);
-        saveChat(currentChatId, updatedMessages, false);
+        console.log('Messages being saved:', updatedMessages.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+        console.log('Current chatId for initial save:', currentChatId);
+        
+        // Ensure the chat exists by saving it immediately
+        try {
+          await saveChat(currentChatId, updatedMessages, false);
+          console.log('Initial chat save completed successfully');
+        } catch (error) {
+          console.error('Initial chat save failed:', error);
+        }
+      } else {
+        console.warn('No currentChatId available for initial save');
       }
       
       setInput('');
@@ -3324,6 +3370,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
       // Create a new AbortController for this request
       abortControllerRef.current = new AbortController();
+
+      // Add timeout to ensure streaming state is reset if operation hangs
+      streamingTimeoutId = setTimeout(() => {
+        console.warn('Chat streaming timeout - resetting streaming state');
+        setIsStreamingComplete(true);
+        setIsProcessing(false);
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+        showToast('Chat streaming timed out', 'warning');
+      }, 60000); // 60 second timeout for chat streaming
 
       // Clear processed code blocks for the new response
       setProcessedCodeBlocks(new Set());
@@ -3547,6 +3605,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       }
 
       let currentContent = '';
+      // Keep track of the current messages during streaming to avoid race conditions
+      // Initialize with the updated messages that include the new user and assistant messages
+      currentMessagesRef.current = [...updatedMessages];
+      
+      // Create a unique session ID for this streaming session to help with debugging
+      const streamingSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      console.log(`=== STREAMING START [${streamingSessionId}] ===`);
+      console.log(`Initial currentMessages count: ${currentMessagesRef.current.length}`);
+      console.log(`Initial currentMessages roles:`, currentMessagesRef.current.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+      console.log(`Initial currentMessages content preview:`, currentMessagesRef.current.map(m => ({ 
+        role: m.role, 
+        contentPreview: m.content?.substring(0, 50) || 'empty',
+        messageId: m.messageId 
+      })));
+      
       // Log what we're about to pass to the API
       console.log(`${logPrefix}Passing to API:`, {
         ...apiConfig,
@@ -3564,25 +3638,37 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         signal: abortControllerRef.current?.signal, // Add abort signal for cancellation
         onUpdate: async (content: string) => {
           currentContent = content;
+          console.log(`Streaming update: content length ${content.length}, currentContent now: ${currentContent.length}`);
           setMessages(prev => {
+            console.log(`Streaming callback: prev messages count: ${prev.length}`);
+            console.log(`Streaming callback: prev message roles:`, prev.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+            
             // Always update the last assistant message (not necessarily the last message in the array)
             // Prefer messages with empty content as they are likely the streaming message we just created
             const newMessages = [...prev];
             let lastAssistantMessageIndex = -1;
             let streamingMessageIndex = -1;
             
+            console.log(`Looking for assistant messages in ${newMessages.length} messages`);
             for (let i = newMessages.length - 1; i >= 0; i--) {
-              if (newMessages[i].role === 'assistant') {
+              const msg = newMessages[i];
+              console.log(`Message ${i}: role=${msg.role}, contentLength=${msg.content?.length || 0}, content="${msg.content?.substring(0, 50)}"`);
+              
+              if (msg.role === 'assistant') {
                 if (lastAssistantMessageIndex === -1) {
                   lastAssistantMessageIndex = i;
+                  console.log(`Found last assistant message at index ${i}`);
                 }
                 // Check if this is the streaming message (empty content)
-                if (newMessages[i].content === '') {
+                if (msg.content === '') {
                   streamingMessageIndex = i;
+                  console.log(`Found streaming message (empty) at index ${i}`);
                   break; // Prefer the streaming message
                 }
               }
             }
+            
+            console.log(`Assistant message search results: lastAssistantMessageIndex=${lastAssistantMessageIndex}, streamingMessageIndex=${streamingMessageIndex}`);
             
             // Use streaming message if found, otherwise fall back to last assistant message
             const targetIndex = streamingMessageIndex !== -1 ? streamingMessageIndex : lastAssistantMessageIndex;
@@ -3597,6 +3683,19 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               };
             } else {
               console.warn('No assistant message found to update during streaming');
+            }
+            
+            console.log(`Streaming callback: newMessages count: ${newMessages.length}`);
+            console.log(`Streaming callback: newMessages roles:`, newMessages.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+            
+            // Update our ref to avoid race conditions
+            currentMessagesRef.current = newMessages;
+            console.log(`Streaming update: currentMessages now has ${currentMessagesRef.current.length} messages`);
+            console.log(`Streaming update: currentMessages roles:`, currentMessagesRef.current.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+            
+            // Verify that the ref is properly updated
+            if (currentMessagesRef.current.length !== newMessages.length) {
+              console.error(`CRITICAL: Ref update failed! newMessages has ${newMessages.length} but ref has ${currentMessagesRef.current.length}`);
             }
             
             // Save chat during streaming with proper tool_calls format
@@ -3636,8 +3735,88 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
       });
 
+      // Clear streaming timeout since operation completed
+      clearTimeout(streamingTimeoutId);
+      
+      console.log('Streaming operation completed, currentContent length:', currentContent.length);
+      console.log('Final currentContent:', currentContent.substring(0, 200) + '...');
+      
       // Ensure we process any final tool calls after streaming is complete
       setIsStreamingComplete(true);
+      
+      // ALWAYS save the chat once at the end of streaming, regardless of tool calls
+      console.log(`=== STREAMING COMPLETION SAVE [${streamingSessionId}] ===`);
+      console.log('Streaming completed, ALWAYS saving final message');
+      console.log('Final content length:', currentContent.length);
+      console.log('Current messages count:', currentMessagesRef.current.length);
+      console.log('Current messages roles:', currentMessagesRef.current.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+      console.log('Current chatId for saving:', currentChatId);
+      console.log('Current messages ref content:', JSON.stringify(currentMessagesRef.current, null, 2));
+      
+      // Check if we have any empty assistant messages to update
+      const emptyAssistantMessages = currentMessagesRef.current.filter(msg => msg.role === 'assistant' && msg.content === '');
+      console.log('Empty assistant messages found:', emptyAssistantMessages.length);
+      
+      if (emptyAssistantMessages.length === 0) {
+        console.warn('No empty assistant messages found to update! This might cause the save to fail.');
+        console.warn('All messages in ref:', currentMessagesRef.current.map(m => ({ role: m.role, content: m.content?.substring(0, 50) })));
+      }
+      
+      // Create the final messages for saving (but don't update state yet)
+      let finalMessagesForSave = currentMessagesRef.current.map(msg => {
+        if (msg.role === 'assistant' && msg.content === '') {
+          // This is the streaming message, update it with final content
+          console.log('Updating streaming message with final content for save');
+          return { ...msg, content: currentContent };
+        }
+        return msg;
+      });
+      
+      // FALLBACK: If no empty assistant message was found, find the last assistant message and update it
+      const hasUpdatedMessage = finalMessagesForSave.some(msg => msg.role === 'assistant' && msg.content === currentContent);
+      if (!hasUpdatedMessage && currentContent.length > 0) {
+        console.warn('No empty assistant message found, using fallback to update last assistant message');
+        
+        // Find the last assistant message and update it
+        for (let i = finalMessagesForSave.length - 1; i >= 0; i--) {
+          if (finalMessagesForSave[i].role === 'assistant') {
+            console.log(`Fallback: updating assistant message at index ${i} with final content`);
+            finalMessagesForSave[i] = { ...finalMessagesForSave[i], content: currentContent };
+            break;
+          }
+        }
+      }
+      
+      console.log('Final messages for save count:', finalMessagesForSave.length);
+      console.log('Final messages for save roles:', finalMessagesForSave.map(m => ({ role: m.role, contentLength: m.content?.length || 0 })));
+      
+      // Save chat with the complete response
+      // Only reload if we expect there to be tool calls
+      const containsToolCalls = currentContent.includes('function_call:') || 
+                               currentContent.includes('<function_calls>');
+      console.log('Saving chat with complete AI response (ALWAYS)');
+      console.log('Final message content length:', currentContent.length);
+      console.log('Final messages count:', finalMessagesForSave.length);
+      console.log('Messages being saved:', finalMessagesForSave.map(m => ({ role: m.role, contentLength: m.content?.length || 0, messageId: m.messageId })));
+      
+      // ALWAYS try to save, even if currentChatId is undefined
+      if (currentChatId) {
+        console.log(`Attempting to save chat with ID: ${currentChatId}`);
+        try {
+          await saveChat(currentChatId, finalMessagesForSave, containsToolCalls);
+          console.log(`=== SAVE COMPLETED SUCCESSFULLY [${streamingSessionId}] ===`);
+        } catch (error) {
+          console.error(`=== SAVE FAILED [${streamingSessionId}] ===`, error);
+        }
+      } else {
+        console.warn('No currentChatId available, but still updating state with final messages');
+      }
+      
+      // ALWAYS update the state with final messages, regardless of save success
+      setMessages(finalMessagesForSave);
+      console.log('State updated with final messages');
+      
+      // Process tool calls if they exist (but don't affect the save)
       if (mode === 'agent' && currentContent.includes('function_call:')) {
         // Cancel any pending timeout
         if (toolCallTimeoutRef) {
@@ -3647,22 +3826,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setIsInToolExecutionChain(true); 
         await processToolCalls(currentContent);
       } else {
-              // Whether there are tool calls or not, always save the final AI message
-      if (currentChatId) {
-        // The streaming content should already be properly set in the message
-        // No need to update it again here to avoid race conditions
-        
-        // Save chat with the complete response but avoid reloading to prevent flickering
-        // Only reload if we expect there to be tool calls
-        const containsToolCalls = currentContent.includes('function_call:') || 
-                                 currentContent.includes('<function_calls>');
-        console.log('Saving chat with complete AI response');
-        // Get the current messages state to ensure we have the latest
-        setMessages(currentMessages => {
-          saveChat(currentChatId, currentMessages, containsToolCalls);
-          return currentMessages;
-        });
-      }
+        // No tool calls found, ensure we don't trigger any additional saves
+        console.log('No tool calls found in final content, skipping tool processing');
       }
 
       // Extract and queue code blocks for auto-insert
@@ -3690,6 +3855,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
       ]);
     } finally {
+      // Clear streaming timeout in case of error or completion
+      clearTimeout(streamingTimeoutId);
       setIsProcessing(false);
     }
   };
@@ -3727,7 +3894,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     // 3. Reset all processing states immediately
     setIsProcessing(false);
     setIsExecutingTool(false);
-    setIsStreamingComplete(true);
+    setIsStreamingComplete(false);
     setIsInToolExecutionChain(false);
     setThinking('');
     
@@ -3819,24 +3986,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   useEffect(() => {
     console.log('currentChatId changed to:', currentChatId);
     if (currentChatId) {
-      // Only load if we're not currently processing a message
-      if (!isProcessing && !isStreamingComplete) {
-        console.log('Loading chat due to currentChatId change - this should only happen when switching chats');
-        loadChat(currentChatId);
-      } else {
-        console.log('Skipping chat load - currently processing or streaming');
-      }
+      loadChat(currentChatId);
     }
-  }, [currentChatId, isProcessing, isStreamingComplete]);
+  }, [currentChatId]);
 
   // Debug: log when messages change
   useEffect(() => {
     console.log('Messages state changed:', messages.length, 'messages');
     if (messages.length > 0) {
       console.log('Message roles:', messages.map(m => m.role));
-      console.log('Last message content preview:', messages[messages.length - 1].content?.substring(0, 100));
     }
   }, [messages]);
+
+  // Debug: log when currentChatId changes
+  useEffect(() => {
+    console.log('currentChatId changed to:', currentChatId);
+  }, [currentChatId]);
 
   // Initialize message ID counter
   useEffect(() => {
@@ -3927,29 +4092,24 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   useEffect(() => {
     if (currentChatId && messages.length > 1) {
       const saveTimer = setTimeout(() => {
-        // Only save if we haven't saved recently and we're not currently streaming
-        if ((!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) && !isStreamingComplete) {
-          console.log('Auto-saving chat due to messages change (not streaming)');
+        // Only save if we haven't saved recently
+        if (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) {
           saveChat(currentChatId, messages);
-        } else {
-          console.log('Skipping auto-save - either too recent or currently streaming');
         }
       }, 5000); // Much longer debounce time as a safety net
       
       return () => clearTimeout(saveTimer);
     }
-  }, [messages, currentChatId, isStreamingComplete]);
+  }, [messages, currentChatId]);
 
   // Listen for save-chat-request events from ToolService
   useEffect(() => {
     const handleSaveChatRequest = (e: CustomEvent) => {
-      if (currentChatId && messages.length > 1 && !isStreamingComplete) {
-        console.log('Save chat request received from tool service (not streaming)');
+      if (currentChatId && messages.length > 1) {
+        console.log('Save chat request received from tool service');
         saveChat(currentChatId, messages);
         // Record that we've saved
         window.lastSaveChatTime = Date.now();
-      } else {
-        console.log('Skipping tool service save request - either no chat ID, not enough messages, or currently streaming');
       }
     };
 
@@ -4029,11 +4189,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         
         // Use a short timeout to let the state update before saving
         setTimeout(() => {
-          // Get current messages state to ensure we have the latest
-          setMessages(currentMessages => {
-            saveChat(currentChatId, currentMessages, needsReload);
-            return currentMessages;
-          });
+          saveChat(currentChatId, updatedMessages, needsReload);
         }, 50);
       } else {
         console.warn('No currentChatId when trying to save message');
@@ -4077,10 +4233,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       if (currentChatId) {
         // We don't add the tool result to messages here, we'll do it in processToolCalls
         // But we save the current state to ensure it's persistent
-        setMessages(currentMessages => {
-          saveChat(currentChatId, currentMessages, false);
-          return currentMessages;
-        });
+        saveChat(currentChatId, messages, false);
       }
       
       // Check if this is an error from the tool service
@@ -4175,8 +4328,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       return { hasToolCalls: false };
     }
     
-    // Save chat before processing tools (without checking user messages)
-    await saveBeforeToolExecution();
+    // Only save chat before processing tools if there are actually function calls to process
+    if (functionCallStrings.length > 0) {
+      console.log(`Found ${functionCallStrings.length} function calls, saving chat before tool execution`);
+      await saveBeforeToolExecution();
+    } else {
+      console.log('No function calls found, skipping saveBeforeToolExecution');
+    }
     
     try {
       // Create a set to track tool call IDs that have already been processed
@@ -4379,10 +4537,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   // Use setTimeout to ensure the message is added to state before saving
                   setTimeout(async () => {
                     try {
-                      setMessages(currentMessages => {
-                        saveChat(currentChatId, currentMessages, true);
-                        return currentMessages;
-                      });
+                      await saveChat(currentChatId, messages, true);
                       console.log('Saved chat after adding tool error message');
                     } catch (error) {
                       console.error('Failed to save chat after tool error:', error);
@@ -4454,10 +4609,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   // Use setTimeout to ensure the message is added to state before saving
                   setTimeout(async () => {
                     try {
-                      setMessages(currentMessages => {
-                        saveChat(currentChatId, currentMessages, true);
-                        return currentMessages;
-                      });
+                      await saveChat(currentChatId, messages, true);
                       console.log('Saved chat after adding tool error message');
                     } catch (error) {
                       console.error('Failed to save chat after tool error:', error);
@@ -5177,19 +5329,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (currentChatId) {
           console.log('AI response completed - saving final chat state');
           
-          // Save chat after the messages state has been updated
-          // We'll do this after the onStreamComplete callback finishes updating the state
-          const containsToolCalls = currentContent.includes('function_call:') || 
-                                   currentContent.includes('<function_calls>');
-          
-          // Delay the save to ensure the message state is fully updated from streaming
-          setTimeout(() => {
-            console.log('Saving chat after streaming completion with current messages state');
-            setMessages(currentMessages => {
-              saveChat(currentChatId, currentMessages, containsToolCalls);
-              return currentMessages;
-            });
-          }, 100); // Small delay to ensure onStreamComplete has finished
+          // Use a callback to get the current messages state
+          setMessages(prevMessages => {
+            // Save chat without reload to prevent flickering
+            // Only reload if the message contains tool calls
+            const containsToolCalls = currentContent.includes('function_call:') || 
+                                     currentContent.includes('<function_calls>');
+            
+            // Save in the next tick to ensure state is updated
+            setTimeout(() => {
+              saveChat(currentChatId, prevMessages, containsToolCalls);
+            }, 0);
+            
+            return prevMessages;
+          });
         }
         
         // Process any final tool calls after streaming is complete
@@ -5526,7 +5679,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             ?.tool_calls?.find(tc => tc.id === message.tool_call_id);
             
           if (toolCall) {
-            toolName = toolCall.name || toolCall.function?.name || 'unknown';
+            toolName = toolCall.name;
             
             // Store the tool arguments
             toolArgs = typeof toolCall.arguments === 'string' 
@@ -6074,7 +6227,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     // Debounce the auto-resize to avoid excessive calls during typing
     timeoutId = setTimeout(() => {
       autoResizeTextarea();
-    }, 100) as unknown as number;
+    }, 100);
     
     return () => clearTimeout(timeoutId);
   }, [input, autoResizeTextarea]);
@@ -6088,6 +6241,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       isAnyProcessing 
     });
   }, [isProcessing, isExecutingTool, isInToolExecutionChain, isAnyProcessing]);
+
+  // Add cleanup effect to reset streaming state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset streaming state when component unmounts
+      setIsStreamingComplete(false);
+    };
+  }, []);
 
   if (!isVisible) return null;
 

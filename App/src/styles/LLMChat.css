@@ -424,11 +424,12 @@
 }
 
 .message-content code {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-code, rgba(0, 0, 0, 0.2));
   padding: 2px 4px;
   border-radius: 3px;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
   font-size: 12px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
 }
 
 .message-content pre {

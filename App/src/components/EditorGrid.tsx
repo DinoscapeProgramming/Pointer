@@ -83,6 +83,17 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady, se
     isStreaming: false
   });
 
+  // Add cleanup effect to reset streaming state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset streaming state when component unmounts
+      setFunctionExplanationDialog(prev => ({
+        ...prev,
+        isStreaming: false
+      }));
+    };
+  }, []);
+
   // Normalize content once when file changes
   useEffect(() => {
     if (file?.name) {
@@ -1682,6 +1693,16 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
       // Use a string builder to collect the streaming response
       let streamedExplanation = '';
       
+      // Add timeout to ensure streaming state is reset
+      const timeoutId = setTimeout(() => {
+        console.warn('Function explanation timeout - resetting streaming state');
+        setFunctionExplanationDialog(prev => ({
+          ...prev,
+          isStreaming: false
+        }));
+        showToast('Function explanation timed out', 'warning');
+      }, 30000); // 30 second timeout
+      
       // Call the function explanation service with streaming
       await AIFileService.getFunctionExplanation(
         file.path,
@@ -1698,6 +1719,9 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           }));
         }
       );
+      
+      // Clear timeout since operation completed
+      clearTimeout(timeoutId);
       
       // Update with the final result and mark streaming as complete
       setFunctionExplanationDialog(prev => ({

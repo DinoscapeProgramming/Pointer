@@ -58,6 +58,16 @@ const OptimizedChatStream = memo(({
     };
   }, []);
 
+  // Add cleanup effect to reset streaming state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset streaming state when component unmounts
+      if (onStreamComplete) {
+        onStreamComplete(streamingContent);
+      }
+    };
+  }, [streamingContent, onStreamComplete]);
+
   // Auto-scroll to bottom during streaming (throttled)
   const autoScrollRef = useRef<number | null>(null);
   useEffect(() => {

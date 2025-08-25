@@ -14,6 +14,8 @@
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, Ubuntu, 'Droid Sans', sans-serif;
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.12);
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.2);
+  --bg-code: rgba(0, 0, 0, 0.2);
+  --inline-code-color: inherit;
   --activity-bar-bg: #333333;
   --activity-bar-fg: #ffffff;
   --titlebar-bg: #3c3c3c;
@@ -279,6 +281,10 @@ button {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.4;
+  background-color: var(--bg-code, rgba(0, 0, 0, 0.2));
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
 }
 
 .response-actions {
