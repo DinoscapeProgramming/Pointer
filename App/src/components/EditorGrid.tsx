@@ -767,8 +767,9 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           // Strip <think> tags from AI response
           cleanedResponse = stripThinkTags(cleanedResponse);
           
-          // Remove markdown code blocks if present
-          cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+          // Remove markdown code blocks if present (only proper code blocks, not inline code)
+          cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
+          cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
           // Remove any language identifiers
           cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
           
@@ -1102,8 +1103,9 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         // Strip <think> tags from AI response
         cleanedResponse = stripThinkTags(cleanedResponse);
         
-        // Remove markdown code blocks if present
-        cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+        // Remove markdown code blocks if present (only proper code blocks, not inline code)
+        cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
+        cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
         // Remove any language identifiers
         cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
         

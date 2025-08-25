@@ -2361,8 +2361,54 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
     content: REFRESH_KNOWLEDGE_PROMPT.content
   };
   
-  // Return the normalized messages with the refresh knowledge prompt inserted at the beginning
-  return [refreshKnowledgeMessage, ...normalizedMessages];
+  // Validate that tool messages have corresponding assistant messages with tool_calls
+  const validatedMessages: Message[] = [];
+  let lastAssistantWithToolCallsIndex = -1;
+  
+  for (let i = 0; i < normalizedMessages.length; i++) {
+    const msg = normalizedMessages[i];
+    
+    if (msg.role === 'tool') {
+      // Check if there's a preceding assistant message with tool_calls
+      if (lastAssistantWithToolCallsIndex === -1) {
+        console.warn(`Removing orphaned tool message at index ${i} - no preceding assistant with tool_calls`);
+        continue; // Skip this tool message
+      }
+      
+      // Check if this tool message corresponds to the last assistant with tool_calls
+      const lastAssistantMsg = normalizedMessages[lastAssistantWithToolCallsIndex];
+      if ('tool_calls' in lastAssistantMsg && lastAssistantMsg.tool_calls) {
+        const toolCallIds = lastAssistantMsg.tool_calls.map(tc => tc.id);
+        if (msg.tool_call_id && !toolCallIds.includes(msg.tool_call_id)) {
+          console.warn(`Removing tool message with mismatched tool_call_id: ${msg.tool_call_id}`);
+          continue; // Skip this tool message
+        }
+      }
+    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
+      lastAssistantWithToolCallsIndex = i;
+    }
+    
+    validatedMessages.push(msg);
+  }
+  
+  console.log(`Validated ${normalizedMessages.length} messages to ${validatedMessages.length} messages`);
+  
+  // Debug: Log the final message sequence
+  console.log('--- FINAL VALIDATED MESSAGES ---');
+  validatedMessages.forEach((msg, idx) => {
+    if (msg.role === 'tool') {
+      console.log(`[${idx}] TOOL: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+      console.log(`[${idx}] ASSISTANT with tool_calls: ${msg.tool_calls.length} calls`);
+      msg.tool_calls.forEach(tc => console.log(`  - Tool call: ${tc.id} (${tc.function?.name})`));
+    } else {
+      console.log(`[${idx}] ${msg.role.toUpperCase()}: ${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+    }
+  });
+  console.log('--- END VALIDATED MESSAGES ---');
+  
+  // Return the validated messages with the refresh knowledge prompt inserted at the beginning
+  return [refreshKnowledgeMessage, ...validatedMessages];
 };
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {

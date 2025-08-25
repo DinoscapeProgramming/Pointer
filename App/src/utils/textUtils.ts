@@ -16,14 +16,14 @@
 export function removeMarkdownCodeBlocks(content: string): string {
   if (!content) return content;
   
-  // Replace code blocks with language specifier: ```javascript ... ```
+  // Replace code blocks with language specifier: ```javascript\n... ```
   let result = content.replace(/```[\w-]*\n([\s\S]*?)```/g, (_, code) => code);
   
-  // Replace code blocks without language specifier: ``` ... ```
+  // Replace code blocks without language specifier: ```\n... ```
   result = result.replace(/```\n([\s\S]*?)```/g, (_, code) => code);
   
-  // Handle edge case where language specifier and code are on the same line
-  result = result.replace(/```([\w-]*) ([\s\S]*?)```/g, (_, lang, code) => code);
+  // Handle edge case where language specifier and code are on the same line: ```javascript code```
+  result = result.replace(/```([\w-]+)\s+([\s\S]*?)```/g, (_, lang, code) => code);
   
   // Replace any stray backticks (in case the regex missed some)
   result = result.replace(/^```[\w-]*$/gm, '').replace(/^```$/gm, '');
@@ -67,10 +67,11 @@ export function cleanAIResponse(content: string): string {
 export function containsMarkdownCodeBlocks(content: string): boolean {
   if (!content) return false;
   
-  // Check for code blocks with or without language specifier
+  // Check for proper code blocks (triple backticks with newlines)
+  // This excludes inline code (single backticks) which don't have newlines
   return /```[\w-]*\n[\s\S]*?```/g.test(content) || 
          /```\n[\s\S]*?```/g.test(content) ||
-         /```[\w-]* [\s\S]*?```/g.test(content);
+         /```[\w-]+\s+[\s\S]*?```/g.test(content);
 }
 
 /**

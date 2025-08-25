@@ -169,7 +169,9 @@ Return ONLY the file extension.`;
 
       // If no Pointer:Code blocks found, try to extract regular markdown code blocks
       if (operations.length === 0) {
-        const codeBlockRegex = /```(\w+)?\s*([\s\S]*?)```/g;
+        // Only match proper code blocks (triple backticks with newlines or language)
+        // This excludes inline code (single backticks) which don't have newlines
+        const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
         const pendingOperations: Promise<FileOperation | null>[] = [];
         
         while ((match = codeBlockRegex.exec(aiResponse)) !== null) {
@@ -887,7 +889,8 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
             // Clean up the response
             fullText = fullText
               .replace(/undefined$/, '')
-              .replace(/```\w*\s*|\s*```/g, '')
+              .replace(/```[\w-]*\n[\s\S]*?```/g, '') // Remove proper code blocks
+              .replace(/```[\w-]*\s+[\s\S]*?```/g, '') // Remove code blocks with language on same line
               .trim();
               
             return fullText;
@@ -1122,7 +1125,8 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
             // Clean up the response
             fullText = fullText
               .replace(/undefined$/, '')
-              .replace(/```\w*\s*|\s*```/g, '')
+              .replace(/```[\w-]*\n[\s\S]*?```/g, '') // Remove proper code blocks
+              .replace(/```[\w-]*\s+[\s\S]*?```/g, '') // Remove code blocks with language on same line
               .trim();
               
             return fullText;
