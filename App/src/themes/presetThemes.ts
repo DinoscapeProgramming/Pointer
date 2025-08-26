@@ -23,6 +23,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#333333',
       activityBarFg: '#ffffff',
       inlineCodeColor: '#cc0000',
+      textMuted: '#2a2a2a',
       
       // Explorer colors
       explorerFolderFg: '#cccccc',
@@ -187,6 +188,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#1a1a1a',
       activityBarFg: '#b3b1ad',
       inlineCodeColor: '#ffcc66',
+      textMuted: '#2a2f3a',
       
       // Explorer colors
       explorerFolderFg: '#ffcc66',
@@ -267,6 +269,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#282c34',
       activityBarFg: '#abb2bf',
       inlineCodeColor: '#e06c75',
+      textMuted: '#1a1d23',
       
       // Explorer colors
       explorerFolderFg: '#e5c07b',
@@ -339,6 +342,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#011627',
       activityBarFg: '#d6deeb',
       inlineCodeColor: '#ff7b72',
+      textMuted: '#0c2133',
       
       // Explorer colors
       explorerFolderFg: '#82aaff',
@@ -411,6 +415,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#282a36',
       activityBarFg: '#f8f8f2',
       inlineCodeColor: '#ff79c6',
+      textMuted: '#1a1d2a',
       
       // Explorer colors
       explorerFolderFg: '#bd93f9',
@@ -483,6 +488,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#282c34',
       activityBarFg: '#abb2bf',
       inlineCodeColor: '#e06c75',
+      textMuted: '#1a1d23',
       
       // Explorer colors
       explorerFolderFg: '#e5c07b',
@@ -555,6 +561,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#263238',
       activityBarFg: '#eeffff',
       inlineCodeColor: '#ff5370',
+      textMuted: '#1e272c',
       
       // Explorer colors
       explorerFolderFg: '#82aaff',
@@ -627,6 +634,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#f5f7f9',
       activityBarFg: '#24292f',
       inlineCodeColor: '#d73a49',
+      textMuted: '#2a2f3a',
       
       // Explorer colors
       explorerFolderFg: '#0969da',
@@ -699,6 +707,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#eee8d5',
       activityBarFg: '#657b83',
       inlineCodeColor: '#dc322f',
+      textMuted: '#2a2f3a',
       
       // Explorer colors
       explorerFolderFg: '#268bd2',
@@ -771,6 +780,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#f3f3f3',
       activityBarFg: '#5c6166',
       inlineCodeColor: '#f07171',
+      textMuted: '#2a2f3a',
       
       // Explorer colors
       explorerFolderFg: '#f2ae49',
@@ -843,6 +853,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#16161e',
       activityBarFg: '#a9b1d6',
       inlineCodeColor: '#bb9af7',
+      textMuted: '#16161e',
       
       // Explorer colors
       explorerFolderFg: '#7aa2f7',
@@ -915,6 +926,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#2e3440',
       activityBarFg: '#d8dee9',
       inlineCodeColor: '#5e81ac',
+      textMuted: '#272c36',
       
       // Explorer colors
       explorerFolderFg: '#88c0d0',
@@ -987,6 +999,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#191a2a',
       activityBarFg: '#c8d3f5',
       inlineCodeColor: '#c099ff',
+      textMuted: '#191a2a',
       
       // Explorer colors
       explorerFolderFg: '#65bcff',
@@ -1059,6 +1072,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#241b2f',
       activityBarFg: '#f8f8f2',
       inlineCodeColor: '#fe4450',
+      textMuted: '#241b2f',
       
       // Explorer colors
       explorerFolderFg: '#f97e72',
@@ -1131,6 +1145,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#f5f5f5',
       activityBarFg: '#1e1e1e',
       inlineCodeColor: '#d32f2f',
+      textMuted: '#1e1e1e',
       
       // Explorer colors
       explorerFolderFg: '#3e3e3e',
@@ -1203,6 +1218,7 @@ export const presetThemes: Record<string, ThemeSettings> = {
       activityBarBg: '#feeeed',
       activityBarFg: '#8e5c7e',
       inlineCodeColor: '#f06999',
+      textMuted: '#4a2f4a',
       
       // Explorer colors
       explorerFolderFg: '#f5a9cb',

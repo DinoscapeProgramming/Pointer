@@ -118,6 +118,7 @@ export interface ThemeSettings {
     activityBarBg?: string;
     activityBarFg?: string;
     inlineCodeColor?: string;
+    textMuted?: string;
     
     // Explorer Colors
     explorerFolderFg?: string;
