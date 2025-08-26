@@ -365,7 +365,12 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
             r'<div[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</div>',
             r'<div[^>]*class="[^"]*web-results[^"]*"[^>]*>(.*?)</div>',
             r'<main[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</main>',
-            r'<section[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</section>'
+            r'<section[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</section>',
+            # More flexible patterns
+            r'<div[^>]*class="[^"]*serp[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*search[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*id="[^"]*results[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*id="[^"]*serp[^"]*"[^>]*>(.*?)</div>'
         ]
         
         main_content = html_content
@@ -381,7 +386,13 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
             r'<div[^>]*class="[^"]*serp__result[^"]*"[^>]*>(.*?)</div>',
             r'<div[^>]*class="[^"]*web-result[^"]*"[^>]*>(.*?)</div>',
             r'<article[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</article>',
-            r'<div[^>]*class="[^"]*result__body[^"]*"[^>]*>(.*?)</div>'
+            r'<div[^>]*class="[^"]*result__body[^"]*"[^>]*>(.*?)</div>',
+            # More flexible patterns
+            r'<div[^>]*class="[^"]*serp[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*item[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*entry[^"]*"[^>]*>(.*?)</div>',
+            r'<li[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</li>',
+            r'<li[^>]*class="[^"]*serp[^"]*"[^>]*>(.*?)</li>'
         ]
         
         # Extract result containers
@@ -399,6 +410,13 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
                     title_match = re.search(r'<h2[^>]*>(.*?)</h2>', container, re.DOTALL)
                 if not title_match:
                     title_match = re.search(r'<a[^>]*class="[^"]*result__title[^"]*"[^>]*>(.*?)</a>', container, re.DOTALL)
+                if not title_match:
+                    title_match = re.search(r'<a[^>]*class="[^"]*title[^"]*"[^>]*>(.*?)</a>', container, re.DOTALL)
+                if not title_match:
+                    title_match = re.search(r'<a[^>]*class="[^"]*serp[^"]*"[^>]*>(.*?)</a>', container, re.DOTALL)
+                if not title_match:
+                    # Look for any anchor tag with href that could be a title
+                    title_match = re.search(r'<a[^>]*href="[^"]*"[^>]*>(.*?)</a>', container, re.DOTALL)
                 
                 title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else ""
                 
@@ -414,6 +432,10 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
                     snippet_match = re.search(r'<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>', container, re.DOTALL)
                 if not snippet_match:
                     snippet_match = re.search(r'<p[^>]*>(.*?)</p>', container, re.DOTALL)
+                if not snippet_match:
+                    snippet_match = re.search(r'<span[^>]*>(.*?)</span>', container, re.DOTALL)
+                if not snippet_match:
+                    snippet_match = re.search(r'<div[^>]*>(.*?)</div>', container, re.DOTALL)
                 
                 snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip() if snippet_match else ""
                 
@@ -474,12 +496,17 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
         
         # If we still don't have results, try to extract meaningful text
         if not results:
+            # First try to find any URLs in the HTML that we might have missed
+            url_pattern = r'https?://[^\s<>"]+'
+            urls = re.findall(url_pattern, html_content)
+            valid_urls = [url for url in urls if not any(skip in url for skip in ['startpage.com', 'support.startpage.com'])]
+            
             # Look for text that appears to be search result titles
             # Focus on text that's likely to be actual content
             text_pattern = r'>([^<]{30,200})<'
             text_matches = re.findall(text_pattern, html_content)
             
-            for text in text_matches:
+            for i, text in enumerate(text_matches):
                 clean_text = text.strip()
                 
                 # Skip CSS/JS content
@@ -504,9 +531,17 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
                     if len(results) >= num_results:
                         break
                     
+                    # Try to extract any URLs from the text content
+                    url_match = re.search(r'https?://[^\s<>"]+', clean_text)
+                    fallback_url = url_match.group(0) if url_match else f"https://www.google.com/search?q={query}"
+                    
+                    # If we have valid URLs from the page, use them
+                    if valid_urls and i < len(valid_urls):
+                        fallback_url = valid_urls[i]
+                    
                     result = {
                         "title": clean_text[:100],
-                        "url": "",
+                        "url": fallback_url,
                         "snippet": clean_text[:200],
                         "position": len(results) + 1,
                         "type": "text_extracted"

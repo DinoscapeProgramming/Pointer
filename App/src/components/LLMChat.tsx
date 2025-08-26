@@ -1925,6 +1925,413 @@ const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content,
   );
 };
 
+// New component for bundling consecutive tool messages
+const ToolBundle: React.FC<{ 
+  toolMessages: ExtendedMessage[]; 
+  messages: ExtendedMessage[];
+  expandedToolCalls: Set<string>;
+  toggleToolCallExpansion: (id: string) => void;
+  index: number;
+}> = ({ toolMessages, messages, expandedToolCalls, toggleToolCallExpansion, index }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const toolCount = toolMessages.length;
+
+  // Get tool names for display
+  const getToolNames = () => {
+    const names = toolMessages.map(msg => {
+      if (msg.tool_call_id) {
+        const toolCall = messages
+          .find(m => m.tool_calls?.some(tc => tc.id === msg.tool_call_id))
+          ?.tool_calls?.find(tc => tc.id === msg.tool_call_id);
+        return toolCall?.name || 'Unknown tool';
+      }
+      return 'Unknown tool';
+    });
+    
+    // Remove duplicates and format
+    const uniqueNames = [...new Set(names)];
+    if (uniqueNames.length === 1) {
+      return `${uniqueNames[0]} (${toolCount}x)`;
+    } else if (uniqueNames.length <= 3) {
+      return uniqueNames.join(', ');
+    } else {
+      return `${uniqueNames.slice(0, 2).join(', ')} +${uniqueNames.length - 2} more`;
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        position: 'relative',
+        width: '100%',
+        marginTop: '4px',
+      }}
+    >
+      <div
+        className="message tool-bundle"
+        style={{
+          padding: '8px 12px',
+          borderRadius: '8px',
+          border: '1px solid var(--border-secondary)',
+          width: '100%',
+          boxSizing: 'border-box',
+          background: 'var(--bg-secondary)',
+        }}
+      >
+        <div 
+          className="tool-bundle-header" 
+          onClick={() => setIsExpanded(!isExpanded)}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            cursor: 'pointer',
+            padding: '0',
+          }}
+        >
+          <div className="tool-bundle-header-content"
+               style={{
+                 display: 'flex',
+                 alignItems: 'center',
+                 gap: '8px',
+               }}>
+            <span className="tool-bundle-icon"
+                  style={{
+                    display: 'inline-flex',
+                    width: '20px',
+                    height: '20px',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    color: 'var(--accent-color)',
+                  }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+            </span>
+            <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500' }}>
+              Executed {toolCount} {toolCount === 1 ? 'tool' : 'tools'}
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              {getToolNames()}
+            </span>
+          </div>
+          <svg 
+            width="14" 
+            height="14" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2"
+            style={{
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s ease',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+
+        {isExpanded && (
+          <div style={{ marginTop: '12px' }}>
+            {toolMessages.map((toolMessage, toolIndex) => {
+              // Parse tool call content to get details
+              let content = typeof toolMessage.content === 'string' ? toolMessage.content : JSON.stringify(toolMessage.content);
+              let toolName = "Tool";
+              const toolCallId = toolMessage.tool_call_id || `tool_${index}_${toolIndex}`;
+              const isExpanded = expandedToolCalls.has(toolCallId);
+              let toolArgs = null;
+              let shortContent = '';
+              let detailedTitle = '';
+              
+              try {
+                // Check if the content has the new detailed title format
+                if (typeof content === 'string') {
+                  const firstNewlineIndex = content.indexOf('\n');
+                  if (firstNewlineIndex > 0) {
+                    // Extract the detailed title and the rest of the content
+                    detailedTitle = content.substring(0, firstNewlineIndex).trim();
+                    content = content.substring(firstNewlineIndex + 1).trim();
+                  }
+                }
+                
+                // Determine tool type and create appropriate label
+                if (toolMessage.tool_call_id) {
+                  const toolCall = messages
+                    .find(m => m.tool_calls?.some(tc => tc.id === toolMessage.tool_call_id))
+                    ?.tool_calls?.find(tc => tc.id === toolMessage.tool_call_id);
+                    
+                            if (toolCall && toolCall.name) {
+            toolName = toolCall.name;
+                    
+                    // Store the tool arguments
+                    toolArgs = typeof toolCall.arguments === 'string' 
+                      ? toolCall.arguments 
+                      : JSON.stringify(toolCall.arguments, null, 2);
+                      
+                    // Try to parse the arguments if they're a string
+                    if (typeof toolCall.arguments === 'string') {
+                      try {
+                        toolArgs = JSON.stringify(JSON.parse(toolCall.arguments), null, 2);
+                      } catch (e) {
+                        // Keep original string if not valid JSON
+                      }
+                    }
+                  }
+                }
+                
+                // Format content for display
+                try {
+                  // Try to clean up the content by removing function call info
+                  let cleanContent = content;
+                  const functionCallIndex = content.indexOf('function_call:');
+                  if (functionCallIndex >= 0) {
+                    cleanContent = content.substring(0, functionCallIndex).trim();
+                  }
+                  
+                  // If nothing is left, extract useful information from the result
+                  if (!cleanContent) {
+                    try {
+                      // Try to parse the content as JSON
+                      let resultObj;
+                      if (typeof content === 'string') {
+                        resultObj = JSON.parse(content);
+                      } else {
+                        resultObj = content;
+                      }
+                    
+                      // Create a simplified preview for collapsed state
+                      if (typeof resultObj === 'object') {
+                        if (resultObj.success !== undefined) {
+                          shortContent = resultObj.success ? 'Operation successful' : 'Operation failed';
+                        } else if (resultObj.contents) {
+                          const contentStr = resultObj.contents.toString() || '';
+                          shortContent = `${contentStr.slice(0, 60)}${contentStr.length > 60 ? '...' : ''}`;
+                        } else if (Array.isArray(resultObj)) {
+                          shortContent = `${resultObj.length} items found`;
+                        } else {
+                          shortContent = '';
+                        }
+                      } else {
+                        shortContent = '';
+                      }
+                    } catch (error) {
+                      shortContent = cleanContent || '';
+                    }
+                  } else {
+                    shortContent = cleanContent.split('\n')[0].slice(0, 60) + (cleanContent.length > 60 ? '...' : '');
+                  }
+                } catch (error) {
+                  shortContent = content.split('\n')[0].slice(0, 60) + (content.length > 60 ? '...' : '');
+                }
+              } catch (e) {
+                console.error("Error parsing tool result:", e);
+                shortContent = typeof content === 'string' ? 
+                  content.split('\n')[0].slice(0, 60) + (content.length > 60 ? '...' : '') : 
+                  'Unknown tool result';
+              }
+
+              return (
+                <div
+                  key={toolMessage.messageId}
+                  style={{
+                    marginBottom: toolIndex < toolMessages.length - 1 ? '12px' : '0',
+                    padding: '8px',
+                    background: 'var(--bg-tertiary)',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-primary)',
+                  }}
+                >
+                  <div className="tool-header" onClick={() => toggleToolCallExpansion(toolCallId)}
+                       style={{
+                         display: 'flex',
+                         justifyContent: 'space-between',
+                         alignItems: 'center',
+                         cursor: 'pointer',
+                         padding: '0',
+                         marginBottom: '6px',
+                       }}>
+                    <div className="tool-header-content"
+                           style={{
+                             display: 'flex',
+                             alignItems: 'center',
+                             gap: '6px',
+                           }}>
+                        <span className="tool-icon"
+                              style={{
+                                display: 'inline-flex',
+                                width: '16px',
+                                height: '16px',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}>
+                          {toolName && toolName === 'read_file' && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                          <line x1="16" y1="13" x2="8" y2="13"></line>
+                          <line x1="16" y1="17" x2="8" y2="17"></line>
+                          <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>}
+                        
+                          {toolName && toolName === 'list_directory' && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>}
+                        
+                          {toolName && toolName === 'web_search' && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="11" cy="11" r="8"></circle>
+                          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>}
+                        
+                          {toolName && !['read_file', 'list_directory', 'web_search'].includes(toolName) && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                          <line x1="12" y1="9" x2="12" y2="13"></line>
+                          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>}
+                      </span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
+                          {detailedTitle || (() => {
+                            // Try to extract the path from arguments
+                            let pathInfo = '';
+                            if (toolArgs) {
+                              try {
+                                // For list_directory, extract directory_path
+                                if (toolName === 'list_directory') {
+                                  const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                                  if (args.directory_path) {
+                                    // Extract just the last part of the path for cleaner display
+                                    const pathParts = args.directory_path.split(/[/\\]/);
+                                    const dirName = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2] || args.directory_path;
+                                    pathInfo = dirName;
+                                  }
+                                }
+                                // For read_file, extract file_path
+                                else if (toolName === 'read_file') {
+                                  const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                                  if (args.file_path) {
+                                    // Extract just the filename for cleaner display
+                                    const pathParts = args.file_path.split(/[/\\]/);
+                                    const fileName = pathParts[pathParts.length - 1];
+                                    pathInfo = fileName;
+                                  }
+                                }
+                                // For web_search, extract query
+                                else if (toolName === 'web_search') {
+                                  const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                                  if (args.query || args.search_term) {
+                                    pathInfo = args.query || args.search_term;
+                                  }
+                                }
+                              } catch (e) {
+                                // Ignore parsing errors
+                              }
+                            }
+
+                            // Generate human-friendly descriptions
+                            if (toolName === 'read_file') {
+                              return `Read file${pathInfo ? `: ${pathInfo}` : ''}`;
+                            } else if (toolName === 'list_directory') {
+                              return `Listed directory${pathInfo ? `: ${pathInfo}` : ''}`;
+                            } else if (toolName === 'web_search') {
+                              return `Searched web${pathInfo ? ` for "${pathInfo}"` : ''}`;
+                            } else if (toolName) {
+                              // Default for other tool types
+                              return toolName.replace(/_/g, ' ') + (shortContent ? `: ${shortContent}` : '');
+                            } else {
+                              return 'Used tool' + (shortContent ? `: ${shortContent}` : '');
+                            }
+                          })()}
+                        </span>
+                    </div>
+                    <svg 
+                      width="10" 
+                      height="10" 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2"
+                      style={{
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s ease',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </div>
+
+                  {!isExpanded && !shortContent && (
+                    <div style={{
+                      padding: '2px 0',
+                      color: 'var(--text-secondary)',
+                      fontSize: '12px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                    }}>
+                      {/* Empty div for spacing when no content to show */}
+                  </div>
+                )}
+                  
+                  {isExpanded && toolArgs && (
+                      <div style={{
+                        marginTop: '6px',
+                        padding: '6px',
+                        background: 'var(--bg-primary)',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)',
+                            whiteSpace: 'pre-wrap',
+                        overflowX: 'auto',
+                      }}>
+                      <div style={{
+                        marginBottom: '4px',
+                        fontWeight: 'bold',
+                        fontSize: '10px',
+                        color: 'var(--text-secondary)',
+                      }}>Arguments Used:</div>
+                      {toolArgs}
+                  </div>
+                  )}
+                  
+                  {isExpanded && (
+                    <>
+                      <div style={{
+                        marginTop: '6px',
+                        fontWeight: 'bold',
+                        fontSize: '10px',
+                        color: 'var(--text-secondary)',
+                      }}>Result:</div>
+                      <pre style={{
+                        marginTop: '3px',
+                        padding: '6px',
+                        background: 'var(--bg-primary)',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontFamily: 'var(--font-mono)',
+                        whiteSpace: 'pre-wrap',
+                        overflowX: 'auto',
+                        maxHeight: isExpanded ? 'none' : '80px',
+                        overflow: isExpanded ? 'auto' : 'hidden',
+                      }}>
+                    {content}
+                  </pre>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Add this component for handling incomplete think blocks
 const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
   // Skip rendering if content is empty
@@ -2288,7 +2695,7 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
               content: '', // Empty content when it's a tool call
               tool_calls: [{
                 id: functionCall.id,
-                type: 'function',
+                type: 'function' as const,
                 function: {
                   name: functionCall.name,
                   arguments: typeof functionCall.arguments === 'string' ? 
@@ -2311,22 +2718,22 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       // Handle normal assistant messages with tool_calls property
       if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
         // Properly format each tool call
-        const formattedToolCalls = msg.tool_calls.map(tc => {
-          // Generate valid ID if missing or invalid
-          const validId = (!tc.id || tc.id.length !== 9 || !/^[a-z0-9]+$/.test(tc.id)) 
-            ? generateValidToolCallId() 
-            : tc.id;
-            
-          return {
-            id: validId,
-            type: 'function',
-            function: {
-              name: tc.name,
-              arguments: typeof tc.arguments === 'string' ? 
-                tc.arguments : JSON.stringify(tc.arguments)
-            }
-          };
-        });
+                    const formattedToolCalls = msg.tool_calls.map(tc => {
+              // Generate valid ID if missing or invalid
+              const validId = (!tc.id || tc.id.length !== 9 || !/^[a-z0-9]+$/.test(tc.id)) 
+                ? generateValidToolCallId() 
+                : tc.id;
+                
+              return {
+                id: validId,
+                type: 'function' as const,
+                function: {
+                  name: tc.name,
+                  arguments: typeof tc.arguments === 'string' ? 
+                    tc.arguments : JSON.stringify(tc.arguments)
+                }
+              };
+            });
         
         console.log(`Formatted ${formattedToolCalls.length} tool calls for assistant message`);
         
@@ -5771,6 +6178,64 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     
     // Handle tool role messages
     if (message.role === 'tool') {
+      // Check if this is part of a consecutive tool message sequence
+      let consecutiveToolMessages: ExtendedMessage[] = [];
+      let currentIndex = index;
+      
+      // Look ahead to find consecutive tool messages
+      while (currentIndex < messages.length && messages[currentIndex].role === 'tool') {
+        consecutiveToolMessages.push(messages[currentIndex]);
+        currentIndex++;
+      }
+      
+      // If we have multiple consecutive tool messages, render as a bundle
+      if (consecutiveToolMessages.length > 1) {
+        // Skip rendering individual tool messages if they're part of a bundle
+        if (index > 0 && messages[index - 1].role === 'tool') {
+          return null; // Skip this message as it's part of a bundle
+        }
+        
+        // Render the bundle
+        return (
+          <ToolBundle
+            key={`tool-bundle-${index}`}
+            toolMessages={consecutiveToolMessages}
+            messages={messages}
+            expandedToolCalls={expandedToolCalls}
+            toggleToolCallExpansion={toggleToolCallExpansion}
+            index={index}
+          />
+        );
+      }
+      
+      // Check if this message is part of a bundle that was already rendered
+      // Look backwards to see if we're part of a bundle
+      let isPartOfBundle = false;
+      let checkIndex = index - 1;
+      while (checkIndex >= 0 && messages[checkIndex].role === 'tool') {
+        // If we find a tool message before us, check if it's the start of a bundle
+        if (checkIndex > 0 && messages[checkIndex - 1].role !== 'tool') {
+          // This is the start of a bundle, check if it has multiple tools
+          let bundleCount = 0;
+          let bundleIndex = checkIndex;
+          while (bundleIndex < messages.length && messages[bundleIndex].role === 'tool') {
+            bundleCount++;
+            bundleIndex++;
+          }
+          if (bundleCount > 1) {
+            isPartOfBundle = true;
+            break;
+          }
+        }
+        checkIndex--;
+      }
+      
+      // If we're part of a bundle, don't render individually
+      if (isPartOfBundle) {
+        return null;
+      }
+      
+      // Single tool message - render normally
       // Parse tool call content to get details
       let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
       let toolName = "Tool";
@@ -5797,7 +6262,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             .find(m => m.tool_calls?.some(tc => tc.id === message.tool_call_id))
             ?.tool_calls?.find(tc => tc.id === message.tool_call_id);
             
-          if (toolCall) {
+          if (toolCall && toolCall.name) {
             toolName = toolCall.name;
             
             // Store the tool arguments
@@ -5966,7 +6431,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                   </svg>}
                   
-                    {toolName && toolName === 'web_search' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {toolName && toolName === 'web_search' && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>}
