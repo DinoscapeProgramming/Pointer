@@ -2727,11 +2727,21 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           return false;
         }
         
+        // Filter out empty assistant messages before saving
+        const messagesToSave = messages.filter(msg => {
+          if (msg.role === 'assistant' && (!msg.content || msg.content.trim() === '')) {
+            console.log(`Filtering out empty assistant message with ID: ${msg.messageId}`);
+            return false;
+          }
+          return true;
+        });
+        
         console.log(`Meaningful messages to save: ${meaningfulMessages.length}`);
-        console.log('Messages to save:', messages.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
+        console.log(`Messages after filtering empty assistants: ${messagesToSave.length}`);
+        console.log('Messages to save:', messagesToSave.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
         
         // Use the simplified ChatService
-        const success = await ChatService.saveChat(chatId, messages);
+        const success = await ChatService.saveChat(chatId, messagesToSave);
         
         if (success) {
           console.log(`Chat ${chatId} saved successfully`);
@@ -2785,9 +2795,17 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           setChatTitle(chat.name);
         }
         
-        // Set messages directly
-        setMessages(chat.messages);
-        console.log(`Loaded chat ${chatId} with ${chat.messages.length} messages`);
+        // Clean up empty assistant messages when loading
+        const cleanedMessages = chat.messages.filter(msg => {
+          if (msg.role === 'assistant' && (!msg.content || msg.content.trim() === '')) {
+            console.log(`Removing empty assistant message when loading chat: ${msg.messageId}`);
+            return false;
+          }
+          return true;
+        });
+        
+        setMessages(cleanedMessages);
+        console.log(`Loaded chat ${chatId} with ${cleanedMessages.length} messages (cleaned from ${chat.messages.length})`);
       } else {
         // Chat not found, create a new one
         console.log(`Chat ${chatId} not found, creating new chat`);
