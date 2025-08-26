@@ -356,95 +356,86 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
         
         results = []
         
-        # Look for search result patterns in Startpage HTML
-        # Startpage typically has results in divs with specific classes or patterns
+        # First, try to find the main search results container
+        # Startpage often wraps results in specific containers
         
-        # Pattern 1: Look for result containers (common Startpage patterns)
-        result_patterns = [
-            # Pattern for result containers
-            r'<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>',
-            # Pattern for result links
-            r'<a[^>]*href="[^"]*"[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</a>',
-            # Pattern for result titles
-            r'<h3[^>]*>(.*?)</h3>',
-            # Pattern for result snippets
-            r'<p[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</p>'
+        # Look for common Startpage result containers
+        main_container_patterns = [
+            r'<div[^>]*class="[^"]*serp__results[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*web-results[^"]*"[^>]*>(.*?)</div>',
+            r'<main[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</main>',
+            r'<section[^>]*class="[^"]*results[^"]*"[^>]*>(.*?)</section>'
         ]
         
-        # Extract URLs from the page
-        url_pattern = r'href="([^"]*)"'
-        urls = re.findall(url_pattern, html_content)
+        main_content = html_content
+        for pattern in main_container_patterns:
+            match = re.search(pattern, html_content, re.DOTALL)
+            if match:
+                main_content = match.group(1)
+                break
         
-        # Extract titles
-        title_pattern = r'<h3[^>]*>(.*?)</h3>'
-        titles = re.findall(title_pattern, html_content)
+        # Now look for individual result containers within the main content
+        result_container_patterns = [
+            r'<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*serp__result[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*class="[^"]*web-result[^"]*"[^>]*>(.*?)</div>',
+            r'<article[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</article>',
+            r'<div[^>]*class="[^"]*result__body[^"]*"[^>]*>(.*?)</div>'
+        ]
         
-        # Extract snippets/descriptions
-        snippet_pattern = r'<p[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</p>'
-        snippets = re.findall(snippet_pattern, html_content)
+        # Extract result containers
+        result_containers = []
+        for pattern in result_container_patterns:
+            containers = re.findall(pattern, main_content, re.DOTALL)
+            result_containers.extend(containers)
         
-        # Alternative snippet patterns
-        if not snippets:
-            snippet_pattern = r'<span[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</span>'
-            snippets = re.findall(snippet_pattern, html_content)
-        
-        # If still no snippets, try broader pattern
-        if not snippets:
-            snippet_pattern = r'<p[^>]*>(.*?)</p>'
-            snippets = re.findall(snippet_pattern, html_content)
-        
-        # Clean and filter results
-        cleaned_urls = []
-        for url in urls:
-            # Skip internal Startpage URLs and non-http URLs
-            if (url.startswith('http') and 
-                not url.startswith('https://www.startpage.com') and
-                not url.startswith('https://startpage.com') and
-                'support.startpage.com' not in url):
-                cleaned_urls.append(url)
-        
-        # Clean titles and snippets
-        cleaned_titles = []
-        for title in titles:
-            # Remove HTML tags
-            clean_title = re.sub(r'<[^>]+>', '', title).strip()
-            if clean_title and len(clean_title) > 5:  # Filter out very short titles
-                cleaned_titles.append(clean_title)
-        
-        cleaned_snippets = []
-        for snippet in snippets:
-            # Remove HTML tags
-            clean_snippet = re.sub(r'<[^>]+>', '', snippet).strip()
-            if clean_snippet and len(clean_snippet) > 20:  # Filter out very short snippets
-                cleaned_snippets.append(clean_snippet)
-        
-        # Combine results
-        max_results = min(num_results, len(cleaned_urls), len(cleaned_titles))
-        
-        for i in range(max_results):
-            title = cleaned_titles[i] if i < len(cleaned_titles) else f"Result {i+1}"
-            url = cleaned_urls[i] if i < len(cleaned_urls) else ""
-            
-            # Skip results with "fully anonymous" title and support.startpage.com URLs
-            if title.lower() == "fully anonymous" and "support.startpage.com" in url:
-                continue
+        # If we found result containers, parse them
+        if result_containers:
+            for container in result_containers[:num_results]:
+                # Extract title from container
+                title_match = re.search(r'<h3[^>]*>(.*?)</h3>', container, re.DOTALL)
+                if not title_match:
+                    title_match = re.search(r'<h2[^>]*>(.*?)</h2>', container, re.DOTALL)
+                if not title_match:
+                    title_match = re.search(r'<a[^>]*class="[^"]*result__title[^"]*"[^>]*>(.*?)</a>', container, re.DOTALL)
                 
-            # Skip Startpage internal navigation elements
-            if title.lower() == "startpage search results":
-                continue
+                title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip() if title_match else ""
                 
-            result = {
-                "title": title,
-                "url": url,
-                "snippet": cleaned_snippets[i] if i < len(cleaned_snippets) else "No description available",
-                "position": len(results) + 1,  # Adjust position since we might skip some
-                "type": "organic_result"
-            }
-            results.append(result)
+                # Extract URL from container
+                url_match = re.search(r'href="([^"]*)"', container)
+                url = url_match.group(1) if url_match else ""
+                
+                # Extract snippet from container
+                snippet_match = re.search(r'<p[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</p>', container, re.DOTALL)
+                if not snippet_match:
+                    snippet_match = re.search(r'<span[^>]*class="[^"]*snippet[^"]*"[^>]*>(.*?)</span>', container, re.DOTALL)
+                if not snippet_match:
+                    snippet_match = re.search(r'<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>', container, re.DOTALL)
+                if not snippet_match:
+                    snippet_match = re.search(r'<p[^>]*>(.*?)</p>', container, re.DOTALL)
+                
+                snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip() if snippet_match else ""
+                
+                # Filter out internal Startpage URLs and non-http URLs
+                if (url.startswith('http') and 
+                    not url.startswith('https://www.startpage.com') and
+                    not url.startswith('https://startpage.com') and
+                    'support.startpage.com' not in url and
+                    title and len(title) > 5):
+                    
+                    result = {
+                        "title": title[:100],
+                        "url": url,
+                        "snippet": snippet[:200] if snippet else "No description available",
+                        "position": len(results) + 1,
+                        "type": "organic_result"
+                    }
+                    results.append(result)
         
-        # If we didn't get enough results with the above patterns, try alternative approach
+        # If we didn't get enough results, try a more aggressive approach
         if len(results) < num_results:
-            # Look for any links that might be search results
+            # Look for all external links that could be search results
             link_pattern = r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
             links = re.findall(link_pattern, html_content)
             
@@ -453,21 +444,27 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
                     not href.startswith('https://www.startpage.com') and
                     not href.startswith('https://startpage.com') and
                     'support.startpage.com' not in href and
-                    len(text.strip()) > 10):
+                    len(text.strip()) > 10 and
+                    len(text.strip()) < 200):
                     
-                    # Skip results with "fully anonymous" title and support.startpage.com URLs
-                    if text.strip().lower() == "fully anonymous" and "support.startpage.com" in href:
+                    # Skip navigation and internal elements
+                    skip_keywords = ['fully anonymous', 'startpage search results', 'privacy', 'settings', 'help', 'about', 'private search', 'introducing', 'blog articles']
+                    if any(keyword in text.strip().lower() for keyword in skip_keywords):
                         continue
-                        
-                    # Skip Startpage internal navigation elements
-                    if text.strip().lower() == "startpage search results":
+                    
+                    # Skip CSS/JS related content
+                    if any(css_js in text.strip().lower() for css_js in ['@font-face', '@media', 'const ', 'var ', 'function', '/*', '*/', '.css-', '{', '}', ';', 'px', 'em', 'rem', 'vh', 'vw', 'transition:', 'opacity:', 'position:', 'top:', 'right:', 'font-size:', 'font-weight:', 'line-height:', 'margin:', 'height:', 'width:', 'object-fit:', '-webkit-']):
+                        continue
+                    
+                    # Skip if this looks like a URL or domain
+                    if text.strip().startswith('http') or text.strip().endswith('.com') or text.strip().endswith('.org') or text.strip().endswith('.net'):
                         continue
                     
                     if len(results) >= num_results:
                         break
                     
                     result = {
-                        "title": text.strip()[:100],  # Limit title length
+                        "title": text.strip()[:100],
                         "url": href,
                         "snippet": "Result extracted from search page",
                         "position": len(results) + 1,
@@ -475,23 +472,43 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
                     }
                     results.append(result)
         
-        # If we still don't have results, try to extract from page structure
+        # If we still don't have results, try to extract meaningful text
         if not results:
-            # Look for any meaningful text that might be search results
-            text_pattern = r'>([^<]{20,})<'
+            # Look for text that appears to be search result titles
+            # Focus on text that's likely to be actual content
+            text_pattern = r'>([^<]{30,200})<'
             text_matches = re.findall(text_pattern, html_content)
             
-            for i, text in enumerate(text_matches[:num_results]):
-                if len(text.strip()) > 20:
-                    # Skip Startpage internal navigation elements
-                    if text.strip().lower() == "startpage search results":
-                        continue
-                        
+            for text in text_matches:
+                clean_text = text.strip()
+                
+                # Skip CSS/JS content
+                if any(css_js in clean_text for css_js in ['@font-face', '@media', 'const ', 'var ', 'function', '/*', '*/', '.css-', '{', '}', ';', 'px', 'em', 'rem', 'vh', 'vw', 'transition:', 'opacity:', 'position:', 'top:', 'right:', 'font-size:', 'font-weight:', 'line-height:', 'margin:', 'height:', 'width:', 'object-fit:', '-webkit-']):
+                    continue
+                
+                # Skip navigation elements
+                skip_keywords = ['startpage search results', 'privacy', 'settings', 'help', 'about', 'fully anonymous', 'private search', 'introducing', 'blog articles']
+                if any(keyword in clean_text.lower() for keyword in skip_keywords):
+                    continue
+                
+                # Look for text that could be a search result title
+                if (len(clean_text) > 30 and 
+                    len(clean_text) < 200 and
+                    not clean_text.startswith('http') and
+                    not clean_text.endswith('.com') and
+                    not clean_text.endswith('.org') and
+                    not clean_text.endswith('.net') and
+                    # Make sure it contains some actual words
+                    len(clean_text.split()) > 3):
+                    
+                    if len(results) >= num_results:
+                        break
+                    
                     result = {
-                        "title": text.strip()[:100],
+                        "title": clean_text[:100],
                         "url": "",
-                        "snippet": text.strip()[:200],
-                        "position": len(results) + 1,  # Adjust position since we might skip some
+                        "snippet": clean_text[:200],
+                        "position": len(results) + 1,
                         "type": "text_extracted"
                     }
                     results.append(result)
@@ -505,7 +522,7 @@ async def _parse_startpage_results(html_content: str, query: str, num_results: i
         else:
             return {
                 "success": False,
-                "error": "No search results found in the page content"
+                "error": "No search results found in the page content. The page structure may have changed or the search returned no results."
             }
             
     except Exception as e:

@@ -2196,6 +2196,25 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       }
       return true;
     })
+    // Filter out orphaned tool messages that don't have corresponding tool_calls in preceding assistant message
+    .filter((msg, index) => {
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        // Check if the preceding message has tool_calls that match this tool message
+        const precedingMessage = messages[index - 1];
+        if (precedingMessage && precedingMessage.role === 'assistant' && 'tool_calls' in precedingMessage && precedingMessage.tool_calls) {
+          // Check if any tool call ID matches this tool message's tool_call_id
+          const hasMatchingToolCall = precedingMessage.tool_calls.some(tc => tc.id === msg.tool_call_id);
+          if (!hasMatchingToolCall) {
+            console.log(`Normalize: Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no matching tool_calls found`);
+            return false;
+          }
+        } else {
+          console.log(`Normalize: Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no preceding assistant message with tool_calls`);
+          return false;
+        }
+      }
+      return true;
+    })
     // Then map to the correct format for the API
     .map((msg) => {
       // Handle file attachments
@@ -2361,54 +2380,8 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
     content: REFRESH_KNOWLEDGE_PROMPT.content
   };
   
-  // Validate that tool messages have corresponding assistant messages with tool_calls
-  const validatedMessages: Message[] = [];
-  let lastAssistantWithToolCallsIndex = -1;
-  
-  for (let i = 0; i < normalizedMessages.length; i++) {
-    const msg = normalizedMessages[i];
-    
-    if (msg.role === 'tool') {
-      // Check if there's a preceding assistant message with tool_calls
-      if (lastAssistantWithToolCallsIndex === -1) {
-        console.warn(`Removing orphaned tool message at index ${i} - no preceding assistant with tool_calls`);
-        continue; // Skip this tool message
-      }
-      
-      // Check if this tool message corresponds to the last assistant with tool_calls
-      const lastAssistantMsg = normalizedMessages[lastAssistantWithToolCallsIndex];
-      if ('tool_calls' in lastAssistantMsg && lastAssistantMsg.tool_calls) {
-        const toolCallIds = lastAssistantMsg.tool_calls.map(tc => tc.id);
-        if (msg.tool_call_id && !toolCallIds.includes(msg.tool_call_id)) {
-          console.warn(`Removing tool message with mismatched tool_call_id: ${msg.tool_call_id}`);
-          continue; // Skip this tool message
-        }
-      }
-    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
-      lastAssistantWithToolCallsIndex = i;
-    }
-    
-    validatedMessages.push(msg);
-  }
-  
-  console.log(`Validated ${normalizedMessages.length} messages to ${validatedMessages.length} messages`);
-  
-  // Debug: Log the final message sequence
-  console.log('--- FINAL VALIDATED MESSAGES ---');
-  validatedMessages.forEach((msg, idx) => {
-    if (msg.role === 'tool') {
-      console.log(`[${idx}] TOOL: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
-    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
-      console.log(`[${idx}] ASSISTANT with tool_calls: ${msg.tool_calls.length} calls`);
-      msg.tool_calls.forEach(tc => console.log(`  - Tool call: ${tc.id} (${tc.function?.name})`));
-    } else {
-      console.log(`[${idx}] ${msg.role.toUpperCase()}: ${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
-    }
-  });
-  console.log('--- END VALIDATED MESSAGES ---');
-  
-  // Return the validated messages with the refresh knowledge prompt inserted at the beginning
-  return [refreshKnowledgeMessage, ...validatedMessages];
+  // Return the normalized messages with the refresh knowledge prompt inserted at the beginning
+  return [refreshKnowledgeMessage, ...normalizedMessages];
 };
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
@@ -2716,45 +2689,87 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   };
 
+  // Add a save queue to prevent race conditions
+  const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const isSavingRef = useRef<boolean>(false);
+  const lastSaveTimeRef = useRef<number>(0);
+  const saveThrottleMs = 200; // Reduced to 200ms to allow more frequent saves during tool processing
 
-  // Function to save chat
-  const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
-    try {
-      console.log(`=== SAVE CHAT CALLED ===`);
-      console.log(`ChatId: ${chatId}`);
-      console.log(`Messages count: ${messages.length}`);
-      console.log(`Reload after save: ${reloadAfterSave}`);
-      
-      // Check if we have meaningful messages to save (not just system message)
-      const meaningfulMessages = messages.filter(msg => msg.role !== 'system');
-      if (meaningfulMessages.length === 0) {
-        console.log('Skipping save - no meaningful messages (only system message)');
-        return;
-      }
-      
-      console.log(`Meaningful messages to save: ${meaningfulMessages.length}`);
-      
-      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
-      console.log('Messages to save:', messages.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
-      
-      // Use the simplified ChatService
-      const success = await ChatService.saveChat(chatId, messages);
-      
-      if (success) {
-        console.log(`Chat ${chatId} saved successfully`);
-        
-        // Only reload if specifically requested
-        if (reloadAfterSave) {
-          setTimeout(() => {
-            loadChat(chatId, true);
-          }, 200);
-        }
-      } else {
-        console.error(`Failed to save chat ${chatId}`);
-      }
-    } catch (error) {
-      console.error('Error in saveChat function:', error);
+  // Enhanced saveChat function with queue management and throttling
+  const saveChatWithQueue = useCallback(async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false): Promise<boolean> => {
+    // Check if we're already saving
+    if (isSavingRef.current) {
+      console.log('Save already in progress, skipping...');
+      return false;
     }
+    
+    // Check throttle - don't save too frequently
+    const now = Date.now();
+    if (now - lastSaveTimeRef.current < saveThrottleMs) {
+      console.log(`Save throttled - last save was ${now - lastSaveTimeRef.current}ms ago`);
+      return false;
+    }
+    
+    // Wait for any ongoing save to complete
+    await saveQueueRef.current;
+    
+    // Create a new save promise
+    saveQueueRef.current = (async () => {
+      if (isSavingRef.current) {
+        console.log('Save already in progress, queuing...');
+        return false;
+      }
+      
+      isSavingRef.current = true;
+      lastSaveTimeRef.current = now;
+      
+      try {
+        console.log(`=== SAVE CHAT CALLED ===`);
+        console.log(`ChatId: ${chatId}`);
+        console.log(`Messages count: ${messages.length}`);
+        console.log(`Reload after save: ${reloadAfterSave}`);
+        
+        // Check if we have meaningful messages to save (not just system message)
+        const meaningfulMessages = messages.filter(msg => msg.role !== 'system');
+        if (meaningfulMessages.length === 0) {
+          console.log('Skipping save - no meaningful messages (only system message)');
+          return false;
+        }
+        
+        console.log(`Meaningful messages to save: ${meaningfulMessages.length}`);
+        console.log('Messages to save:', messages.map(m => ({ role: m.role, content: m.content?.substring(0, 100), messageId: m.messageId })));
+        
+        // Use the simplified ChatService
+        const success = await ChatService.saveChat(chatId, messages);
+        
+        if (success) {
+          console.log(`Chat ${chatId} saved successfully`);
+          
+          // Only reload if specifically requested
+          if (reloadAfterSave) {
+            setTimeout(() => {
+              loadChat(chatId, true);
+            }, 200);
+          }
+          return true;
+        } else {
+          console.error(`Failed to save chat ${chatId}`);
+          return false;
+        }
+      } catch (error) {
+        console.error('Error in saveChat function:', error);
+        return false;
+      } finally {
+        isSavingRef.current = false;
+      }
+    })();
+    
+    return saveQueueRef.current;
+  }, []);
+
+  // Function to save chat (now uses the queued version)
+  const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
+    return await saveChatWithQueue(chatId, messages, reloadAfterSave);
   };
 
   // Load chat data with cache-busting
@@ -4106,22 +4121,24 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     return () => clearTimeout(timer);
   }, []); // Only run once on mount
 
-  // Define the saveBeforeToolExecution function
+  // Define the saveBeforeToolExecution function (disabled to prevent infinite loops)
   const saveBeforeToolExecution = useCallback(async () => {
-    if (currentChatId && messages.length > 1) {
-      console.log('Saving chat before tool execution (external trigger)');
-      // Save with force=true to ensure all messages are preserved during tool execution
-      await saveChat(currentChatId, messages, true);
-      return true;
-    }
+    console.log('Save before tool execution disabled to prevent infinite loops');
     return false;
-  }, [currentChatId, messages, saveChat]);
+  }, []);
 
-  // Expose the saveBeforeToolExecution method to the DOM
+  // Define the saveAfterToolExecution function (disabled to prevent infinite loops)
+  const saveAfterToolExecution = useCallback(async () => {
+    console.log('Save after tool execution disabled to prevent infinite loops');
+    return false;
+  }, []);
+
+  // Expose the saveBeforeToolExecution and saveAfterToolExecution methods to the DOM
   useEffect(() => {
     const chatElement = document.querySelector('[data-chat-container="true"]');
     if (chatElement) {
       (chatElement as any).saveBeforeToolExecution = saveBeforeToolExecution;
+      (chatElement as any).saveAfterToolExecution = saveAfterToolExecution;
     }
 
     return () => {
@@ -4129,34 +4146,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const chatElement = document.querySelector('[data-chat-container="true"]');
       if (chatElement) {
         (chatElement as any).saveBeforeToolExecution = undefined;
+        (chatElement as any).saveAfterToolExecution = undefined;
       }
     };
-  }, [saveBeforeToolExecution]);
+  }, [saveBeforeToolExecution, saveAfterToolExecution]);
 
-  // Remove useEffect for debounced saving as we now save immediately after each change
-  // We'll still keep a minimal useEffect to save for any scenario where messages change but not through our direct actions
-  useEffect(() => {
-    if (currentChatId && messages.length > 1) {
-      const saveTimer = setTimeout(() => {
-        // Only save if we haven't saved recently
-        if (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) {
-          saveChat(currentChatId, messages);
-        }
-      }, 5000); // Much longer debounce time as a safety net
-      
-      return () => clearTimeout(saveTimer);
-    }
-  }, [messages, currentChatId]);
-
-  // Listen for save-chat-request events from ToolService
+  // Listen for save-chat-request events from ToolService (disabled to prevent infinite loops)
   useEffect(() => {
     const handleSaveChatRequest = (e: CustomEvent) => {
-      if (currentChatId && messages.length > 1) {
-        console.log('Save chat request received from tool service');
-        saveChat(currentChatId, messages);
-        // Record that we've saved
-        window.lastSaveChatTime = Date.now();
-      }
+      console.log('Save chat request received but disabled to prevent infinite loops');
+      // Don't save here - let the auto-save mechanism handle it
     };
 
     window.addEventListener('save-chat-request', handleSaveChatRequest as EventListener);
@@ -4164,7 +4163,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     return () => {
       window.removeEventListener('save-chat-request', handleSaveChatRequest as EventListener);
     };
-  }, [currentChatId, messages]);
+  }, []);
 
   // Add this before the return statement
   const handleEditMessage = (index: number) => {
@@ -4222,24 +4221,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const updatedMessages = [...prev, formattedMessage];
       console.log(`setMessages callback - prev count: ${prev.length}, new count: ${updatedMessages.length}`);
       
-      // Always save the chat after adding a message
-      if (currentChatId) {
-        // Only reload after tool messages to avoid flickering
-        // Other message types are saved without reloading
-        const needsReload = 
-          message.role === 'tool' || 
-          !!message.tool_call_id || 
-          !!message.tool_calls;
-          
-        console.log(`Scheduling save for chat ${currentChatId} with ${updatedMessages.length} messages, needsReload: ${needsReload}`);
-        
-        // Use a short timeout to let the state update before saving
-        setTimeout(() => {
-          saveChat(currentChatId, updatedMessages, needsReload);
-        }, 50);
-      } else {
-        console.warn('No currentChatId when trying to save message');
-      }
+      // Don't save here - let the auto-save mechanism handle it
+      // This prevents infinite loops during tool processing
       
       return updatedMessages;
     });
@@ -4275,12 +4258,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
       
-      // After getting the tool result, immediately save the state
-      if (currentChatId) {
-        // We don't add the tool result to messages here, we'll do it in processToolCalls
-        // But we save the current state to ensure it's persistent
-        saveChat(currentChatId, messages, false);
-      }
+      // Don't save here - we'll save at the end of tool processing
+      // This prevents multiple saves during tool execution
       
       // Check if this is an error from the tool service
       if (result?.success === false || !result) {
@@ -4297,10 +4276,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           
           const updatedMessages = [...prev, assistantErrorMessage];
           
-          // Save the chat after adding the error message
-          if (currentChatId) {
-            saveChat(currentChatId, updatedMessages, true);
-          }
+          // Don't save here - let the auto-save mechanism handle it
           
           return updatedMessages;
         });
@@ -4374,13 +4350,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       return { hasToolCalls: false };
     }
     
-    // Only save chat before processing tools if there are actually function calls to process
-    if (functionCallStrings.length > 0) {
-      console.log(`Found ${functionCallStrings.length} function calls, saving chat before tool execution`);
-      await saveBeforeToolExecution();
-    } else {
-      console.log('No function calls found, skipping saveBeforeToolExecution');
-    }
+    // Don't save before tool execution - we'll save once at the end
+    // This prevents multiple saves during tool processing
     
     try {
       // Create a set to track tool call IDs that have already been processed
@@ -4839,15 +4810,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 
                 const updatedMessages = [...prev, toolMessage];
                 
-                // Save chat after adding tool result - but wait for state update to complete
+                // Save immediately after adding tool result to prevent loss during reloads
                 if (currentChatId) {
-                  // Use setTimeout to ensure state update completes before saving
                   setTimeout(() => {
-                    console.log(`Saving chat with tool message content: "${toolMessage.content}"`);
-                    window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-                    // Save with force=true to ensure all messages are preserved
-                    saveChat(currentChatId, updatedMessages, true);
-                  }, 0);
+                    console.log(`Saving chat immediately after tool result: ${functionCall.name}`);
+                    saveChat(currentChatId, updatedMessages, false);
+                  }, 50);
                 }
                 
                 return updatedMessages;
@@ -4895,12 +4863,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 const toolMessage: ExtendedMessage = result;
                 const updatedMessages = [...prev, toolMessage];
                 
-                // Save chat after adding tool result
+                // Save immediately after adding tool result to prevent loss during reloads
                 if (currentChatId) {
                   setTimeout(() => {
-                    window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-                    saveChat(currentChatId, updatedMessages, true);
-                  }, 0);
+                    console.log(`Saving chat immediately after parallel tool result: ${functionCall.name}`);
+                    saveChat(currentChatId, updatedMessages, false);
+                  }, 50);
                 }
                 
                 return updatedMessages;
@@ -4923,24 +4891,27 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
       }
     } finally {
-    // Continue the conversation if we processed any tool calls (including errors)
-    if (processedAnyCalls) {
-      console.log(`Tool calls processed (${hadToolErrors ? 'with errors' : 'successfully'}), continuing conversation...`);
+      // No need to save here since we're saving after each tool call
+      console.log('Tool processing completed - saves were done after each tool call');
       
-      // Continue conversation with slight delay
-      setTimeout(() => {
-        continueLLMConversation();
-      }, 300);
-    } else if (hadToolErrors) {
-      // Even if no valid tool calls were processed, if we had errors, we should continue
-      console.log("No valid tool calls processed, but had tool errors - continuing conversation anyway");
-      setTimeout(() => {
-        continueLLMConversation();
-      }, 300);
-    } else {
-      console.log("No tool calls processed and no errors");
-      setIsInToolExecutionChain(false);
-    }
+      // Continue the conversation if we processed any tool calls (including errors)
+      if (processedAnyCalls) {
+        console.log(`Tool calls processed (${hadToolErrors ? 'with errors' : 'successfully'}), continuing conversation...`);
+        
+        // Continue conversation with slight delay
+        setTimeout(() => {
+          continueLLMConversation();
+        }, 300);
+      } else if (hadToolErrors) {
+        // Even if no valid tool calls were processed, if we had errors, we should continue
+        console.log("No valid tool calls processed, but had tool errors - continuing conversation anyway");
+        setTimeout(() => {
+          continueLLMConversation();
+        }, 300);
+      } else {
+        console.log("No tool calls processed and no errors");
+        setIsInToolExecutionChain(false);
+      }
     }
     
     return { hasToolCalls: processedAnyCalls };
@@ -4963,8 +4934,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Instead, use the current state which should have the latest messages including any error messages
       console.log(`Continuing conversation with current state (version: ${continuationVersion})`);
       
-      // Don't filter or truncate the messages at all - use ALL messages
-      // This ensures we have the complete context with all tool calls and results
       // Get a fresh copy of the messages from state to ensure we have the latest data
       let relevantMessages: ExtendedMessage[] = [];
       setMessages(prev => {
@@ -4975,7 +4944,31 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Allow state update to complete
       await new Promise(resolve => setTimeout(resolve, 50));
       
-      console.log(`Including ALL ${relevantMessages.length} messages for context`);
+      // Filter out orphaned tool messages that don't have corresponding tool_calls
+      // This prevents the "Invalid parameter: messages with role 'tool' must be a response to a preceeding message with 'tool_calls'" error
+      const filteredMessages = relevantMessages.filter((msg, index) => {
+        if (msg.role === 'tool') {
+          // Check if the preceding message has tool_calls that match this tool message
+          const precedingMessage = relevantMessages[index - 1];
+          if (precedingMessage && precedingMessage.role === 'assistant' && 'tool_calls' in precedingMessage && precedingMessage.tool_calls) {
+            // Check if any tool call ID matches this tool message's tool_call_id
+            const hasMatchingToolCall = precedingMessage.tool_calls.some(tc => tc.id === msg.tool_call_id);
+            if (!hasMatchingToolCall) {
+              console.log(`Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no matching tool_calls found`);
+              return false;
+            }
+          } else {
+            console.log(`Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no preceding assistant message with tool_calls`);
+            return false;
+          }
+        }
+        return true;
+      });
+      
+      console.log(`Filtered ${relevantMessages.length} messages to ${filteredMessages.length} messages for context`);
+      
+      // Use the filtered messages
+      relevantMessages = filteredMessages;
       
       // Get the last user message for the continuation prompt
       const lastUserMessage = [...relevantMessages].reverse().find(msg => msg.role === 'user');
@@ -5014,8 +5007,36 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         content: typeof m.content === 'string' ? 
           (m.content.length > 100 ? m.content.substring(0, 100) + '...' : m.content) : 
           'Non-string content',
-        tool_call_id: m.tool_call_id || undefined
+        tool_call_id: m.tool_call_id || undefined,
+        tool_calls: 'tool_calls' in m ? m.tool_calls?.length || 0 : undefined
       })), null, 2));
+      
+      // Validate message structure before sending
+      let hasValidationError = false;
+      for (let i = 0; i < conversationContext.length; i++) {
+        const msg = conversationContext[i];
+        if (msg.role === 'tool') {
+          // Check if preceding message has matching tool_calls
+          const precedingMsg = conversationContext[i - 1];
+          if (!precedingMsg || precedingMsg.role !== 'assistant' || !('tool_calls' in precedingMsg) || !precedingMsg.tool_calls) {
+            console.error(`VALIDATION ERROR: Tool message at index ${i} has no preceding assistant message with tool_calls`);
+            hasValidationError = true;
+          } else {
+            const hasMatchingCall = precedingMsg.tool_calls.some(tc => tc.id === msg.tool_call_id);
+            if (!hasMatchingCall) {
+              console.error(`VALIDATION ERROR: Tool message at index ${i} has no matching tool_call_id in preceding message`);
+              hasValidationError = true;
+            }
+          }
+        }
+      }
+      
+      if (hasValidationError) {
+        console.error('Message validation failed - aborting continuation');
+        setIsProcessing(false);
+        setIsInToolExecutionChain(false);
+        return;
+      }
       
       // Format the API config with the full conversation context
       const apiConfig = {
@@ -6295,6 +6316,36 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setIsStreamingComplete(false);
     };
   }, []);
+
+  // Auto-save with throttling to prevent infinite loops
+  useEffect(() => {
+    if (currentChatId && messages.length > 1) {
+      // Use a debounced save to prevent too frequent saves
+      const saveTimer = setTimeout(() => {
+        console.log(`Auto-saving chat ${currentChatId} with ${messages.length} messages`);
+        saveChat(currentChatId, messages, false);
+      }, 2000); // 2 second debounce
+      
+      return () => clearTimeout(saveTimer);
+    }
+  }, [messages, currentChatId]);
+
+  // Add global save mechanism
+  useEffect(() => {
+    // Add global save function to window object
+    (window as any).saveCurrentChat = async () => {
+      if (currentChatId && messages.length > 1) {
+        console.log('Global save triggered');
+        return await saveChat(currentChatId, messages, false);
+      }
+      return false;
+    };
+
+    return () => {
+      // Clean up global save function
+      delete (window as any).saveCurrentChat;
+    };
+  }, [currentChatId, messages, saveChat]);
 
   if (!isVisible) return null;
 

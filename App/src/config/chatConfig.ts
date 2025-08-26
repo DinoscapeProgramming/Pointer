@@ -261,7 +261,13 @@ export const getFileExtension = (language: string): string => {
 
 // Function to generate a valid tool call ID
 export const generateValidToolCallId = (): string => {
-  return `call_${Math.random().toString(36).substring(2, 10)}`;
+  // Generate exactly 9 characters: 5 random lowercase letters/numbers + 4 more
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 9; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 };
 
 // Function to generate prompts for specific purposes
