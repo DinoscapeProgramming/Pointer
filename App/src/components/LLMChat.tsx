@@ -1943,7 +1943,33 @@ const ToolBundle: React.FC<{
         const toolCall = messages
           .find(m => m.tool_calls?.some(tc => tc.id === msg.tool_call_id))
           ?.tool_calls?.find(tc => tc.id === msg.tool_call_id);
-        return toolCall?.name || 'Unknown tool';
+        
+        if (toolCall?.name) {
+          return toolCall.name;
+        }
+        
+        // Fallback: try to extract tool name from content
+        if (typeof msg.content === 'string') {
+          // Look for common tool patterns in the content
+          const toolPatterns = [
+            /read_file/i,
+            /list_directory/i,
+            /web_search/i,
+            /get_codebase_overview/i,
+            /search_codebase/i,
+            /edit_file/i,
+            /create_file/i,
+            /delete_file/i
+          ];
+          
+          for (const pattern of toolPatterns) {
+            if (pattern.test(msg.content)) {
+              return pattern.source.replace(/[^a-zA-Z_]/g, '');
+            }
+          }
+        }
+        
+        return 'Unknown tool';
       }
       return 'Unknown tool';
     });
@@ -2060,14 +2086,14 @@ const ToolBundle: React.FC<{
                   }
                 }
                 
-                // Determine tool type and create appropriate label
+                                // Determine tool type and create appropriate label
                 if (toolMessage.tool_call_id) {
                   const toolCall = messages
                     .find(m => m.tool_calls?.some(tc => tc.id === toolMessage.tool_call_id))
                     ?.tool_calls?.find(tc => tc.id === toolMessage.tool_call_id);
                     
-                            if (toolCall && toolCall.name) {
-            toolName = toolCall.name;
+                  if (toolCall && toolCall.name) {
+                    toolName = toolCall.name;
                     
                     // Store the tool arguments
                     toolArgs = typeof toolCall.arguments === 'string' 
@@ -2080,6 +2106,30 @@ const ToolBundle: React.FC<{
                         toolArgs = JSON.stringify(JSON.parse(toolCall.arguments), null, 2);
                       } catch (e) {
                         // Keep original string if not valid JSON
+                      }
+                    }
+                  }
+                }
+                
+                // Fallback: try to extract tool name from content if still unknown
+                if (toolName === "Tool") {
+                  if (typeof toolMessage.content === 'string') {
+                    // Look for common tool patterns in the content
+                    const toolPatterns = [
+                      /read_file/i,
+                      /list_directory/i,
+                      /web_search/i,
+                      /get_codebase_overview/i,
+                      /search_codebase/i,
+                      /edit_file/i,
+                      /create_file/i,
+                      /delete_file/i
+                    ];
+                    
+                    for (const pattern of toolPatterns) {
+                      if (pattern.test(toolMessage.content)) {
+                        toolName = pattern.source.replace(/[^a-zA-Z_]/g, '');
+                        break;
                       }
                     }
                   }
@@ -6208,33 +6258,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         );
       }
       
-      // Check if this message is part of a bundle that was already rendered
-      // Look backwards to see if we're part of a bundle
-      let isPartOfBundle = false;
-      let checkIndex = index - 1;
-      while (checkIndex >= 0 && messages[checkIndex].role === 'tool') {
-        // If we find a tool message before us, check if it's the start of a bundle
-        if (checkIndex > 0 && messages[checkIndex - 1].role !== 'tool') {
-          // This is the start of a bundle, check if it has multiple tools
-          let bundleCount = 0;
-          let bundleIndex = checkIndex;
-          while (bundleIndex < messages.length && messages[bundleIndex].role === 'tool') {
-            bundleCount++;
-            bundleIndex++;
-          }
-          if (bundleCount > 1) {
-            isPartOfBundle = true;
-            break;
-          }
-        }
-        checkIndex--;
-      }
-      
-      // If we're part of a bundle, don't render individually
-      if (isPartOfBundle) {
-        return null;
-      }
-      
       // Single tool message - render normally
       // Parse tool call content to get details
       let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
@@ -6279,41 +6302,31 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               }
             }
           }
-        } else {
-          // Try to extract function call details from the content if tool_call_id is missing
-          try {
-            // Look for various function_call patterns
-            let extractedName = null;
+        }
+        
+        // Fallback: try to extract tool name from content if still unknown
+        if (toolName === "Tool") {
+          if (typeof message.content === 'string') {
+            // Look for common tool patterns in the content
+            const toolPatterns = [
+              /read_file/i,
+              /list_directory/i,
+              /web_search/i,
+              /get_codebase_overview/i,
+              /search_codebase/i,
+              /edit_file/i,
+              /create_file/i,
+              /delete_file/i
+            ];
             
-            // First try to match the "name":"value" pattern
-            const nameMatch = content.match(/"name"\s*:\s*"([^"]+)"/);
-            if (nameMatch && nameMatch[1]) {
-              extractedName = nameMatch[1];
-            }
-            
-            // Also try to match function_call pattern
-            if (!extractedName) {
-              const functionCallMatch = content.match(/function_call:\s*\{.*?"name"\s*:\s*"([^"]+)"/s);
-              if (functionCallMatch && functionCallMatch[1]) {
-                extractedName = functionCallMatch[1];
+            for (const pattern of toolPatterns) {
+              if (pattern.test(message.content)) {
+                toolName = pattern.source.replace(/[^a-zA-Z_]/g, '');
+                break;
               }
             }
-            
-            // Also look for simpler pattern like list_directory
-            if (!extractedName) {
-              const simpleCallMatch = content.match(/\b(list_directory|read_file)\b/);
-              if (simpleCallMatch) {
-                extractedName = simpleCallMatch[1];
-              }
-            }
-            
-            if (extractedName) {
-              toolName = extractedName;
-            }
-          } catch (e) {
-            // Ignore extraction errors
           }
-      }
+        }
       
       // Format content for display
       try {
@@ -7311,4 +7324,4 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       )}
     </div>
   );
-} 
+}
