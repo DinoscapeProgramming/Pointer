@@ -2196,22 +2196,13 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       }
       return true;
     })
-    // Filter out orphaned tool messages that don't have corresponding tool_calls in preceding assistant message
+    // Temporarily disable aggressive filtering in normalizeConversationHistory as well
+    // TODO: Re-enable with better logic once we confirm this fixes the issue
     .filter((msg, index) => {
-      if (msg.role === 'tool' && msg.tool_call_id) {
-        // Check if the preceding message has tool_calls that match this tool message
-        const precedingMessage = messages[index - 1];
-        if (precedingMessage && precedingMessage.role === 'assistant' && 'tool_calls' in precedingMessage && precedingMessage.tool_calls) {
-          // Check if any tool call ID matches this tool message's tool_call_id
-          const hasMatchingToolCall = precedingMessage.tool_calls.some(tc => tc.id === msg.tool_call_id);
-          if (!hasMatchingToolCall) {
-            console.log(`Normalize: Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no matching tool_calls found`);
-            return false;
-          }
-        } else {
-          console.log(`Normalize: Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no preceding assistant message with tool_calls`);
-          return false;
-        }
+      // Only filter out completely empty tool messages
+      if (msg.role === 'tool' && (!msg.content || msg.content.trim() === '')) {
+        console.log(`Normalize: Filtering out empty tool message for ID: ${msg.tool_call_id || 'unknown'}`);
+        return false;
       }
       return true;
     })
@@ -4944,25 +4935,42 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Allow state update to complete
       await new Promise(resolve => setTimeout(resolve, 50));
       
-      // Filter out orphaned tool messages that don't have corresponding tool_calls
-      // This prevents the "Invalid parameter: messages with role 'tool' must be a response to a preceeding message with 'tool_calls'" error
-      const filteredMessages = relevantMessages.filter((msg, index) => {
+      // Debug: Log all messages before filtering
+      console.log('=== MESSAGES BEFORE FILTERING ===');
+      relevantMessages.forEach((msg, idx) => {
         if (msg.role === 'tool') {
-          // Check if the preceding message has tool_calls that match this tool message
-          const precedingMessage = relevantMessages[index - 1];
-          if (precedingMessage && precedingMessage.role === 'assistant' && 'tool_calls' in precedingMessage && precedingMessage.tool_calls) {
-            // Check if any tool call ID matches this tool message's tool_call_id
-            const hasMatchingToolCall = precedingMessage.tool_calls.some(tc => tc.id === msg.tool_call_id);
-            if (!hasMatchingToolCall) {
-              console.log(`Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no matching tool_calls found`);
-              return false;
-            }
-          } else {
-            console.log(`Filtering out orphaned tool message with ID: ${msg.tool_call_id} - no preceding assistant message with tool_calls`);
-            return false;
-          }
+          console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+          console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+        } else {
+          console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        }
+      });
+      
+      // Temporarily disable aggressive filtering to ensure tool responses are passed to backend
+      // TODO: Re-enable with better logic once we confirm this fixes the issue
+      console.log('WARNING: Tool message filtering disabled to ensure tool responses reach backend');
+      const filteredMessages = relevantMessages.filter((msg, index) => {
+        // Only filter out completely empty tool messages
+        if (msg.role === 'tool' && (!msg.content || msg.content.trim() === '')) {
+          console.log(`Filtering out empty tool message with ID: ${msg.tool_call_id || 'unknown'}`);
+          return false;
         }
         return true;
+      });
+      
+      // Debug: Log all messages after filtering
+      console.log('=== MESSAGES AFTER FILTERING ===');
+      filteredMessages.forEach((msg, idx) => {
+        if (msg.role === 'tool') {
+          console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+          console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+        } else {
+          console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        }
       });
       
       console.log(`Filtered ${relevantMessages.length} messages to ${filteredMessages.length} messages for context`);
@@ -4979,9 +4987,37 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         content: AFTER_TOOL_CALL_PROMPT.content
       };
       
+      // Debug: Log what we're passing to normalizeConversationHistory
+      console.log('=== MESSAGES BEING PASSED TO NORMALIZE ===');
+      relevantMessages.forEach((msg, idx) => {
+        if (msg.role === 'tool') {
+          console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+          console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+        } else {
+          console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        }
+      });
+      
       // Prepare conversation context that includes everything the model needs
+      const normalizedMessages = normalizeConversationHistory(relevantMessages);
+      
+      // Debug: Log what normalizeConversationHistory returned
+      console.log('=== MESSAGES AFTER NORMALIZE ===');
+      normalizedMessages.forEach((msg, idx) => {
+        if (msg.role === 'tool') {
+          console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+          console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+        } else {
+          console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+        }
+      });
+      
       const conversationContext: Message[] = [
-        ...normalizeConversationHistory(relevantMessages),
+        ...normalizedMessages,
         // Add the continuation prompt at the end
         continuationPrompt
       ];
@@ -5011,22 +5047,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         tool_calls: 'tool_calls' in m ? m.tool_calls?.length || 0 : undefined
       })), null, 2));
       
-      // Validate message structure before sending
+      // Temporarily disable strict validation to ensure tool responses reach backend
+      // TODO: Re-enable with better logic once we confirm this fixes the issue
+      console.log('WARNING: Message validation disabled to ensure tool responses reach backend');
+      
+      // Only validate that tool messages have content
       let hasValidationError = false;
       for (let i = 0; i < conversationContext.length; i++) {
         const msg = conversationContext[i];
         if (msg.role === 'tool') {
-          // Check if preceding message has matching tool_calls
-          const precedingMsg = conversationContext[i - 1];
-          if (!precedingMsg || precedingMsg.role !== 'assistant' || !('tool_calls' in precedingMsg) || !precedingMsg.tool_calls) {
-            console.error(`VALIDATION ERROR: Tool message at index ${i} has no preceding assistant message with tool_calls`);
+          if (!msg.content || msg.content.trim() === '') {
+            console.error(`VALIDATION ERROR: Tool message at index ${i} has no content`);
             hasValidationError = true;
           } else {
-            const hasMatchingCall = precedingMsg.tool_calls.some(tc => tc.id === msg.tool_call_id);
-            if (!hasMatchingCall) {
-              console.error(`VALIDATION ERROR: Tool message at index ${i} has no matching tool_call_id in preceding message`);
-              hasValidationError = true;
-            }
+            console.log(`Tool message at index ${i} validated: has content and tool_call_id=${msg.tool_call_id}`);
           }
         }
       }
