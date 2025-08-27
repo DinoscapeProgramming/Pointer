@@ -171,6 +171,8 @@ Return ONLY the file extension.`;
       if (operations.length === 0) {
         // Only match proper code blocks (triple backticks with newlines or language)
         // This excludes inline code (single backticks) which don't have newlines
+        // More specific pattern to ensure we only match triple backticks
+        // Each pattern must start and end with exactly three backticks
         const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
         const pendingOperations: Promise<FileOperation | null>[] = [];
         

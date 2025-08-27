@@ -1475,8 +1475,15 @@ const MessageRenderer: React.FC<{
             code({ inline, className, children, ...props }: CodeProps) {
               let content = String(children).replace(/\n$/, '');
 
-              // Use inline prop to render inline code; otherwise treat as block
-              if (inline) {
+              // ReactMarkdown correctly identifies:
+              // - Single backticks (`code`) as inline (props.inline = true)
+              // - Triple backticks (```code```) as block (props.inline = false/undefined)
+              
+              // Additional check: if content doesn't contain newlines and is short, treat as inline
+              const isShortContent = content.length < 50 && !content.includes('\n');
+              const shouldBeInline = inline === true || isShortContent;
+              
+              if (shouldBeInline) {
                 return (
                   <code
                     style={{

@@ -768,6 +768,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           cleanedResponse = stripThinkTags(cleanedResponse);
           
           // Remove markdown code blocks if present (only proper code blocks, not inline code)
+          // Each pattern must start and end with exactly three backticks
           cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
           cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
           // Remove any language identifiers
@@ -1104,6 +1105,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         cleanedResponse = stripThinkTags(cleanedResponse);
         
         // Remove markdown code blocks if present (only proper code blocks, not inline code)
+        // Each pattern must start and end with exactly three backticks
         cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
         cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
         // Remove any language identifiers

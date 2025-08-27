@@ -84,10 +84,13 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
             const language = match ? match[1] : '';
             const code = String(children).replace(/\n$/, '');
             
-            // Trust react-markdown's parsing - it correctly identifies:
+            // ReactMarkdown correctly identifies:
             // - Single backticks (`code`) as inline (props.inline = true)
             // - Triple backticks (```code```) as block (props.inline = false/undefined)
-            const isInline = props.inline === true;
+            
+            // Additional check: if content doesn't contain newlines and is short, treat as inline
+            const isShortContent = code.length < 50 && !code.includes('\n');
+            const isInline = props.inline === true || isShortContent;
             
             if (!isInline && language) {
               return (
