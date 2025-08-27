@@ -4,6 +4,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
 import { ExtendedMessage } from '../config/chatConfig';
+import LinkHoverCard from './LinkHoverCard';
 
 interface CodeProps {
   inline?: boolean;
@@ -277,7 +278,7 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
               }
             };
             
-            return (
+            const linkElement = (
               <a
                 href={href}
                 target={isExternalLink ? '_blank' : undefined}
@@ -309,6 +310,17 @@ const ChatMessage = memo(({ message, index, isAnyProcessing = false, onEditMessa
                 {children}
               </a>
             );
+            
+            // Wrap external links with LinkHoverCard
+            if (isExternalLink && href) {
+              return (
+                <LinkHoverCard url={href}>
+                  {linkElement}
+                </LinkHoverCard>
+              );
+            }
+            
+            return linkElement;
           },
         }}
       >

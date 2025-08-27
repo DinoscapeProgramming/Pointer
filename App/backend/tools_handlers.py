@@ -585,13 +585,18 @@ async def fetch_webpage(url: str) -> Dict[str, Any]:
                 if 'text/html' in content_type:
                     # For HTML, return simplified content
                     text = await response.text()
+                    print(f"Fetched HTML content length: {len(text)}")
+                    print(f"HTML content preview: {text[:200]}...")
+                    
+                    # Increase limit to ensure we get metadata
+                    content_limit = 15000  # Increased from 5000
                     return {
                         "success": True,
                         "url": url,
                         "content_type": content_type,
                         "status_code": response.status,
-                        "content": text[:5000] + ("..." if len(text) > 5000 else ""),
-                        "truncated": len(text) > 5000
+                        "content": text[:content_limit] + ("..." if len(text) > content_limit else ""),
+                        "truncated": len(text) > content_limit
                     }
                 elif 'application/json' in content_type:
                     # For JSON, parse and return

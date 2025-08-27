@@ -999,6 +999,29 @@ async def health_check():
             content={"status": "unhealthy", "error": str(e)}
         )
 
+@app.post("/fetch_webpage")
+async def fetch_webpage_endpoint(request: dict):
+    """Fetch webpage content and metadata."""
+    try:
+        from tools_handlers import fetch_webpage
+        
+        if not request.get("url"):
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        url = request["url"]
+        print(f"Fetching webpage: {url}")
+        
+        result = await fetch_webpage(url)
+        print(f"Fetch result: success={result.get('success')}, content_length={len(result.get('content', '')) if result.get('content') else 0}")
+        
+        return result
+    except Exception as e:
+        print(f"Error in fetch_webpage endpoint: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
 @app.post("/open-directory")
 async def open_directory():
     """Open a directory using dialog and return its contents."""

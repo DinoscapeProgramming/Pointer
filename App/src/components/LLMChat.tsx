@@ -13,6 +13,7 @@ import { Message, FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { ChatModeSwitch } from './ChatModeSwitch';
 import ToolService from '../services/ToolService';
+import LinkHoverCard from './LinkHoverCard';
 // Import configurations from the new chatConfig file
 import { 
   INITIAL_SYSTEM_MESSAGE, 
@@ -785,7 +786,7 @@ const MessageRenderer: React.FC<{
               a: ({ href, children, ...props }) => {
                 const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
                 
-                return (
+                const linkElement = (
                   <a
                     href={href}
                     target={isExternalLink ? '_blank' : undefined}
@@ -816,6 +817,17 @@ const MessageRenderer: React.FC<{
                     {children}
                   </a>
                 );
+                
+                // Wrap external links with LinkHoverCard
+                if (isExternalLink && href) {
+                  return (
+                    <LinkHoverCard url={href}>
+                      {linkElement}
+                    </LinkHoverCard>
+                  );
+                }
+                
+                return linkElement;
               },
               // Strikethrough support
               del: ({ children, ...props }) => (
@@ -1064,7 +1076,7 @@ const MessageRenderer: React.FC<{
                 a: ({ href, children, ...props }) => {
                   const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
                   
-                  return (
+                  const linkElement = (
                     <a
                       href={href}
                       target={isExternalLink ? '_blank' : undefined}
@@ -1095,6 +1107,17 @@ const MessageRenderer: React.FC<{
                       {children}
                     </a>
                   );
+                  
+                  // Wrap external links with LinkHoverCard
+                  if (isExternalLink && href) {
+                    return (
+                      <LinkHoverCard url={href}>
+                        {linkElement}
+                      </LinkHoverCard>
+                    );
+                  }
+                  
+                  return linkElement;
                 },
                 // Strikethrough support
                 del: ({ children, ...props }) => (
@@ -1352,7 +1375,7 @@ const MessageRenderer: React.FC<{
             a: ({ href, children, ...props }) => {
               const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
               
-              return (
+              const linkElement = (
                 <a
                   href={href}
                   target={isExternalLink ? '_blank' : undefined}
@@ -1383,6 +1406,17 @@ const MessageRenderer: React.FC<{
                   {children}
                 </a>
               );
+              
+              // Wrap external links with LinkHoverCard
+              if (isExternalLink && href) {
+                return (
+                  <LinkHoverCard url={href}>
+                    {linkElement}
+                  </LinkHoverCard>
+                );
+              }
+              
+              return linkElement;
             },
             // Strikethrough support
             del: ({ children, ...props }) => (
@@ -1655,7 +1689,7 @@ const MessageRenderer: React.FC<{
                 a: ({ href, children, ...props }) => {
                   const isExternalLink = href && (href.startsWith('http://') || href.startsWith('https://'));
                   
-                  return (
+                  const linkElement = (
                     <a
                       href={href}
                       target={isExternalLink ? '_blank' : undefined}
@@ -1686,6 +1720,17 @@ const MessageRenderer: React.FC<{
                       {children}
                     </a>
                   );
+                  
+                  // Wrap external links with LinkHoverCard
+                  if (isExternalLink && href) {
+                    return (
+                      <LinkHoverCard url={href}>
+                        {linkElement}
+                      </LinkHoverCard>
+                    );
+                  }
+                  
+                  return linkElement;
                 },
                 // Strikethrough support
                 del: ({ children, ...props }) => (
