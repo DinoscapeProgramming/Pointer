@@ -2644,6 +2644,20 @@ const AUTO_INSERT_STYLES = `
   .think-block-container + div .message.tool {
     margin-top: 6px !important;
   }
+  
+  /* Typing dots animation */
+  .typing-dots {
+    animation: typing-pulse 1.4s infinite ease-in-out;
+  }
+  
+  @keyframes typing-pulse {
+    0%, 100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 `;
 
 // First, restore the interface for FunctionCall and ToolArgs
@@ -7144,6 +7158,23 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 {renderMessage(message, index)}
               </div>
             ))}
+            
+            {/* Typing animation when processing and no assistant response yet */}
+            {isProcessing && messages.length > 1 && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].content && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '12px 16px',
+                  color: 'var(--text-secondary)',
+                  fontSize: '14px',
+                  opacity: 0.8,
+                }}
+              >
+                <span className="typing-dots">...</span>
+              </div>
+            )}
           </>
         )}
         <div ref={messagesEndRef} />
