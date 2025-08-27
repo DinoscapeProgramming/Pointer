@@ -164,34 +164,10 @@ export class ToolService {
    * This is called before making a tool call to ensure the chat is preserved
    */
   private async saveCurrentChat(): Promise<void> {
-    // No longer disabled - actively save chat before tool execution
-    // Try multiple selectors to find the chat component
-    const selectors = [
-      '.llm-chat-container',
-      '.chat-container',
-      '[data-chat-container]'
-    ];
-    
-    let chatComponent = null;
-    for (const selector of selectors) {
-      const component = document.querySelector(selector) as any;
-      if (component && component.saveBeforeToolExecution) {
-        chatComponent = component;
-        break;
-      }
-    }
-    
-    if (chatComponent && chatComponent.saveBeforeToolExecution) {
-      try {
-        await chatComponent.saveBeforeToolExecution();
-        console.log('Successfully saved chat before tool execution');
-      } catch (error) {
-        console.error('Failed to save chat before tool execution:', error);
-      }
-    } else {
-      console.log('Chat component not available for saving before tool execution');
-      // Continue with tool execution even if we can't save the chat
-    }
+    // DISABLED: Don't save during tool execution to prevent race conditions
+    // The chat will be saved after the complete backend response is received
+    console.log('Save before tool execution disabled - chat will be saved after complete response');
+    return;
   }
 
   /**

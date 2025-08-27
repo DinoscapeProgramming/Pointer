@@ -3607,15 +3607,55 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Function to detect and process complete code blocks during streaming
   const processStreamingCodeBlocks = (content: string) => {
+    // During streaming, we only collect code blocks but don't process them yet
+    // This prevents premature insertion while AI is still generating content
     if (!autoInsertEnabled) return;
     
     // Extract code blocks from the current content using the robust function from textUtils
     const codeBlocks = extractCodeBlocks(content);
     
+    // Store code blocks for later processing after streaming is complete
+    // We'll process them in processFinalCodeBlocks after streaming is fully done
+    codeBlocks.forEach(block => {
+      const blockType = block.isLineEdit ? 'line-specific edit' : 'full file insertion';
+      console.log(`Collecting ${blockType} during streaming: ${block.filename} (will process after streaming completes)`);
+      
+      // Check if we already have this filename in pending inserts
+      const alreadyPending = pendingInserts.some(insert => insert.filename === block.filename);
+      
+      if (!alreadyPending) {
+        // Add to pending inserts with all properties
+        setPendingInserts(prev => [
+          ...prev,
+          { 
+            filename: block.filename, 
+            content: block.content,
+            ...(block.isLineEdit && {
+              startLine: block.startLine,
+              endLine: block.endLine,
+              isLineEdit: block.isLineEdit
+            })
+          }
+        ]);
+      } else {
+        console.log(`Skipping ${block.filename} - already pending insertion`);
+      }
+    });
+  };
+
+  // Function to process code blocks after streaming is fully complete
+  const processFinalCodeBlocks = (content: string) => {
+    if (!autoInsertEnabled) return;
+    
+    console.log('Streaming is fully complete, now processing final code blocks for insertion');
+    
+    // Extract code blocks from the final content
+    const codeBlocks = extractCodeBlocks(content);
+    
     // Process code blocks with filename-based duplicate checking to prevent multiple inserts
     codeBlocks.forEach(block => {
       const blockType = block.isLineEdit ? 'line-specific edit' : 'full file insertion';
-      console.log(`Processing ${blockType} during streaming: ${block.filename}`);
+      console.log(`Processing final ${blockType}: ${block.filename}`);
       
       // Check if we already have this filename in pending inserts
       const alreadyPending = pendingInserts.some(insert => insert.filename === block.filename);
@@ -3650,17 +3690,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   };
 
-  // Run auto-insert whenever pendingInserts changes
+  // Run auto-insert whenever pendingInserts changes, but only after streaming is complete
   useEffect(() => {
-    // Add a small delay to batch multiple code blocks that arrive quickly
-    if (pendingInserts.length > 0 && autoInsertEnabled) {
+    // Only process auto-insert if streaming is fully complete
+    if (pendingInserts.length > 0 && autoInsertEnabled && isStreamingComplete) {
+      console.log('Streaming is complete, processing auto-insert for', pendingInserts.length, 'pending inserts');
       const timer = setTimeout(() => {
         processAutoInsert();
       }, 500); // 500ms delay for more responsive insertion
       
       return () => clearTimeout(timer);
+    } else if (pendingInserts.length > 0 && autoInsertEnabled && !isStreamingComplete) {
+      console.log('Pending inserts available but streaming not complete yet, waiting...');
     }
-  }, [pendingInserts, autoInsertInProgress, autoInsertEnabled]);
+  }, [pendingInserts, autoInsertInProgress, autoInsertEnabled, isStreamingComplete]);
 
   // Function to handle file attachment via dialog
   const handleFileAttachment = async () => {
@@ -3839,6 +3882,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       setIsProcessing(true);
       setIsStreamingComplete(false); // Reset streaming complete state
+      
+      // Clear any pending inserts from previous streaming sessions
+      // This ensures we don't process old code blocks when new streaming starts
+      setPendingInserts([]);
       
       // Auto-accept any pending changes before sending new message
       await autoAcceptChanges();
@@ -4234,12 +4281,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
               const saveVersion = window.chatSaveVersion;
               
-              setTimeout(() => {
-                // Only save if our version is still current
-                if ((window.chatSaveVersion || 0) === saveVersion) {
-                  saveChat(currentChatId, newMessages, false);
-                }
-              }, 100);
+              // Don't save during streaming - let the main save at the end handle it
+              // This prevents race conditions during streaming
             }
             
             return newMessages;
@@ -4357,18 +4400,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         console.log('No tool calls found in final content, skipping tool processing');
       }
 
-      // Extract and queue code blocks for auto-insert
-      const codeBlocks = extractCodeBlocks(currentContent);
-      if (codeBlocks.length > 0 && autoInsertEnabled) {
-        setPendingInserts(prev => [
-          ...prev,
-          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-        ]);
-        
-        setTimeout(() => {
-          preloadInsertModel();
-        }, 3000);
-      }
+      // Process final code blocks for auto-insert after streaming is fully complete
+      processFinalCodeBlocks(currentContent);
+      
+      // Preload insert model after a short delay
+      setTimeout(() => {
+        preloadInsertModel();
+      }, 3000);
       
     } catch (error) {
       console.error(`Error in ${editIndex !== null ? 'handleSubmitEdit' : 'handleSubmit'}:`, error);
@@ -5015,18 +5053,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               // Add the failed tool call to the conversation
               setMessages(prev => [...prev, failedToolMessage]);
               
-                              // Save the chat with the error message before continuing
-                if (currentChatId) {
-                  // Use setTimeout to ensure the message is added to state before saving
-                  setTimeout(async () => {
-                    try {
-                      await saveChat(currentChatId, messages, true);
-                      console.log('Saved chat after adding tool error message');
-                    } catch (error) {
-                      console.error('Failed to save chat after tool error:', error);
-                    }
-                  }, 100);
-                }
+              // Don't save here - let the main save at the end handle it
+              // This prevents race conditions during tool execution
               
               // Continue the conversation to let the AI retry
               setTimeout(() => {
@@ -5087,18 +5115,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 // Add the failed tool call to the conversation
                 setMessages(prev => [...prev, failedToolMessage]);
                 
-                // Save the chat with the error message before continuing
-                if (currentChatId) {
-                  // Use setTimeout to ensure the message is added to state before saving
-                  setTimeout(async () => {
-                    try {
-                      await saveChat(currentChatId, messages, true);
-                      console.log('Saved chat after adding tool error message');
-                    } catch (error) {
-                      console.error('Failed to save chat after tool error:', error);
-                    }
-                  }, 100);
-                }
+                // Don't save here - let the main save at the end handle it
+                // This prevents race conditions during tool execution
                 
                 // Mark that we processed a tool call (even though it failed)
                 processedAnyCalls = true;
@@ -5213,11 +5231,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               };
             }
             
-            // Save the updated messages immediately
-            if (currentChatId) {
-              window.chatSaveVersion = processVersion;
-              saveChat(currentChatId, newMessages, false);
-            }
+            // Don't save here - let the main save at the end handle it
+            // This prevents race conditions during tool execution
           }
           
           return newMessages;
@@ -5266,7 +5281,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 );
               }
               
-                        // Add the tool result to messages
+              // Add the tool result to messages
               setMessages(prev => {
                 // Use the formatted result directly since it's already a proper tool message
                 const toolMessage: ExtendedMessage = result;
@@ -5276,13 +5291,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 
                 const updatedMessages = [...prev, toolMessage];
                 
-                // Save immediately after adding tool result to prevent loss during reloads
-                if (currentChatId) {
-                  setTimeout(() => {
-                    console.log(`Saving chat immediately after tool result: ${functionCall.name}`);
-                    saveChat(currentChatId, updatedMessages, false);
-                  }, 50);
-                }
+                // Don't save here - let the main save at the end handle it
+                // This prevents race conditions during tool execution
                 
                 return updatedMessages;
               });
@@ -5869,10 +5879,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 const saveVersion = window.chatSaveVersion;
                 
                 setTimeout(() => {
-                  // Only save if our version is still current
-                  if ((window.chatSaveVersion || 0) === saveVersion) {
-                    saveChat(currentChatId, newMessages, false);
-                  }
+                  // Don't save during streaming - let the main save at the end handle it
+                  // This prevents race conditions during streaming
                 }, 100);
               }
               
@@ -5902,24 +5910,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setIsStreamingComplete(true);
         
         // Save the chat with final content
-        if (currentChatId) {
-          console.log('AI response completed - saving final chat state');
-          
-          // Use a callback to get the current messages state
-          setMessages(prevMessages => {
-            // Save chat without reload to prevent flickering
-            // Only reload if the message contains tool calls
-            const containsToolCalls = currentContent.includes('function_call:') || 
-                                     currentContent.includes('<function_calls>');
-            
-            // Save in the next tick to ensure state is updated
-            setTimeout(() => {
-              saveChat(currentChatId, prevMessages, containsToolCalls);
-            }, 0);
-            
-            return prevMessages;
-          });
-        }
+        // Don't save here - let the main save at the end handle it
+        // This prevents race conditions during streaming
         
         // Process any final tool calls after streaming is complete
         if (currentContent.includes('function_call:')) {
@@ -5945,18 +5937,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // No function calls in the response - always reset processing state
           console.log('No function calls detected, resetting all processing states');
           
-          // Extract and queue code blocks for auto-insert
-          const codeBlocks = extractCodeBlocks(currentContent);
-          if (codeBlocks.length > 0 && autoInsertEnabled) {
-            setPendingInserts(prev => [
-              ...prev,
-              ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-            ]);
-            
-            setTimeout(() => {
-              preloadInsertModel();
-            }, 3000);
-          }
+          // Process final code blocks for auto-insert after streaming is fully complete
+          processFinalCodeBlocks(currentContent);
+          
+          // Preload insert model after a short delay
+          setTimeout(() => {
+            preloadInsertModel();
+          }, 3000);
           
           // Always reset all processing states when there are no function calls
           setIsInToolExecutionChain(false);
