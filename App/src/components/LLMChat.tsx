@@ -681,6 +681,95 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
   children?: React.ReactNode;
 }
 
+// Component to handle long user messages with fade-out effect
+const LongMessageWrapper: React.FC<{ 
+  message: ExtendedMessage; 
+  children: React.ReactNode;
+}> = React.memo(({ message, children }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isLongMessage, setIsLongMessage] = useState(false);
+  const [lineCount, setLineCount] = useState(0);
+
+  // Check if message is long enough to need truncation
+  useEffect(() => {
+    if (contentRef.current && message.role === 'user') {
+      const content = contentRef.current;
+      
+      // Use a more reliable method to calculate line count
+      const style = window.getComputedStyle(content);
+      const lineHeight = parseInt(style.lineHeight) || parseInt(style.fontSize) * 1.2 || 20;
+      const height = content.scrollHeight;
+      const lines = Math.ceil(height / lineHeight);
+      
+      setLineCount(lines);
+      setIsLongMessage(lines > 6);
+    }
+  }, [message.content, message.role]);
+
+  if (message.role !== 'user' || !isLongMessage || isExpanded) {
+    return <div ref={contentRef}>{children}</div>;
+  }
+
+      return (
+      <div ref={contentRef} style={{ position: 'relative', width: '100%' }}>
+        <div
+          style={{
+            maxHeight: '120px', // Approximately 6 lines
+            overflow: 'hidden',
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {children}
+          {/* Fade-out overlay */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: '40px',
+              background: 'linear-gradient(transparent, var(--bg-primary))',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+        {/* Show full message button */}
+        <button
+          onClick={() => setIsExpanded(true)}
+          style={{
+            position: 'absolute',
+            bottom: '-8px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border-primary)',
+            borderRadius: '12px',
+            padding: '4px 12px',
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+            transition: 'all 0.2s ease',
+            zIndex: 1,
+            whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'var(--bg-hover)';
+            e.currentTarget.style.color = 'var(--text-primary)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--bg-primary)';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }}
+        >
+          Show full message ({lineCount} lines)
+        </button>
+      </div>
+    );
+});
+
 // Memoized MessageRenderer to prevent unnecessary re-renders during resize
 const MessageRenderer: React.FC<{ 
   message: ExtendedMessage; 
@@ -6729,12 +6818,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           )}
           {/* User message */}
           {message.role === 'user' && (
-            <MessageRenderer 
-              message={message} 
-              isAnyProcessing={isAnyProcessing}
-              onContinue={handleContinueFromError}
-              messageIndex={index}
-            />
+            <LongMessageWrapper message={message}>
+              <MessageRenderer 
+                message={message} 
+                isAnyProcessing={isAnyProcessing}
+                onContinue={handleContinueFromError}
+                messageIndex={index}
+              />
+            </LongMessageWrapper>
           )}
         </div>
         {message.role === 'user' && (
