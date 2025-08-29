@@ -11,7 +11,7 @@ import { FileChangeEventService } from '../services/FileChangeEventService';
 import { AIFileService } from '../services/AIFileService';
 import { Message, FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
-import { ChatModeSwitch } from './ChatModeSwitch';
+
 import ToolService from '../services/ToolService';
 import LinkHoverCard from './LinkHoverCard';
 // Import configurations from the new chatConfig file
@@ -2900,8 +2900,8 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   console.log('LLMChat rendered with currentChatId:', currentChatId);
-  // Add mode state
-  const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
+  // Always use agent mode
+  const mode: 'agent' = 'agent';
   
   // Update the initial state and types to use ExtendedMessage
   const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
@@ -4027,7 +4027,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setProcessedCodeBlocks(new Set());
 
       // Get model configuration based on mode
-      const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
+      const modelConfig = await AIFileService.getModelConfigForPurpose('agent');
       const modelId = modelConfig.modelId;
 
       // Use the normalizeConversationHistory function to properly handle tool calls
@@ -4035,7 +4035,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const messagesForAPI = normalizeConversationHistory(updatedMessages.slice(0, -1));
       
       // Add additional data for agent mode if this is a new message (not an edit)
-      if (mode === 'agent' && editIndex === null) {
+      if (editIndex === null) {
         // Get the user's workspace directory instead of the program's working directory
         const workspaceDir = await fetch('/get-workspace-directory')
           .then(res => res.json())
@@ -4059,7 +4059,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         messages: [
           {
             role: 'system' as const,
-            content: mode === 'agent' ? agentSystemMessage : chatSystemMessage,
+            content: agentSystemMessage,
           },
           ...messagesForAPI
         ],
@@ -4068,7 +4068,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         top_p: modelConfig.topP,
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
-        ...(mode === 'agent' && {
+        ...({
           tools: [
             {
               type: "function",
@@ -4227,15 +4227,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       };
       
       // For initial messages in agent mode, we use list_directory as default
-      if (mode === 'agent' && editIndex === null) {
+      if (editIndex === null) {
         apiConfig.tool_choice = "auto"; // Use a supported string value
       }
 
       // Debug log
       const isEdit = editIndex !== null;
       const logPrefix = isEdit ? 'Edit - ' : '';
-      console.log(`${logPrefix}Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
-      if (mode === 'agent') {
+              console.log(`${logPrefix}Mode: agent, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
+      {
         console.log(`${logPrefix}API Config in agent mode:`, JSON.stringify({
           ...apiConfig,
           messages: '[Messages included]',
@@ -4274,7 +4274,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       await lmStudio.createStreamingChatCompletion({
         ...apiConfig,
-        purpose: mode === 'agent' ? 'agent' : 'chat',
+        purpose: 'agent',
         signal: abortControllerRef.current?.signal, // Add abort signal for cancellation
         onUpdate: async (content: string) => {
           currentContent = content;
@@ -4358,16 +4358,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           processStreamingCodeBlocks(content);
 
           // Process tool calls as needed
-          if (mode === 'agent') {
-            // Debounce tool call processing
-            if (toolCallTimeoutRef) clearTimeout(toolCallTimeoutRef);
-            toolCallTimeoutRef = setTimeout(() => {
-              processToolCalls(content);
-              toolCallTimeoutRef = null;
-            }, 300);
-          } else {
-            await processToolCalls(content);
-          }
+          // Debounce tool call processing
+          if (toolCallTimeoutRef) clearTimeout(toolCallTimeoutRef);
+          toolCallTimeoutRef = setTimeout(() => {
+            processToolCalls(content);
+            toolCallTimeoutRef = null;
+          }, 300);
         }
       });
 
@@ -4453,7 +4449,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       console.log('State updated with final messages');
       
       // Process tool calls if they exist (but don't affect the save)
-      if (mode === 'agent' && currentContent.includes('function_call:')) {
+      if (currentContent.includes('function_call:')) {
         // Cancel any pending timeout
         if (toolCallTimeoutRef) {
           clearTimeout(toolCallTimeoutRef);
@@ -6983,9 +6979,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         alignItems: 'center',
         height: '35px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <ChatModeSwitch mode={mode} onModeChange={setMode} />
-          <div className="chat-switcher">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <span style={{ 
+            fontSize: '14px', 
+            fontWeight: '400', 
+            color: 'var(--text-secondary)'
+          }}>
+            Agent
+          </span>
+          <div className="chat-switcher" style={{ marginRight: '16px' }}>
             <button
               onClick={async () => {
                 // Reload chats first, then toggle visibility
@@ -7005,7 +7007,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 style={{
                   position: 'absolute',
                   top: '100%',
-                  left: 0,
+                  right: 0,
                   background: 'var(--bg-primary)',
                   border: '1px solid var(--border-primary)',
                   borderRadius: '4px',
@@ -7089,7 +7091,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {/* Remove Refresh Knowledge button since it's always included now */}
           <button
             onClick={onClose}
@@ -7100,6 +7102,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               color: 'var(--text-primary)',
               cursor: 'pointer',
               padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
