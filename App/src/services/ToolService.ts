@@ -164,34 +164,10 @@ export class ToolService {
    * This is called before making a tool call to ensure the chat is preserved
    */
   private async saveCurrentChat(): Promise<void> {
-    // No longer disabled - actively save chat before tool execution
-    // Try multiple selectors to find the chat component
-    const selectors = [
-      '.llm-chat-container',
-      '.chat-container',
-      '[data-chat-container]'
-    ];
-    
-    let chatComponent = null;
-    for (const selector of selectors) {
-      const component = document.querySelector(selector) as any;
-      if (component && component.saveBeforeToolExecution) {
-        chatComponent = component;
-        break;
-      }
-    }
-    
-    if (chatComponent && chatComponent.saveBeforeToolExecution) {
-      try {
-        await chatComponent.saveBeforeToolExecution();
-        console.log('Successfully saved chat before tool execution');
-      } catch (error) {
-        console.error('Failed to save chat before tool execution:', error);
-      }
-    } else {
-      console.log('Chat component not available for saving before tool execution');
-      // Continue with tool execution even if we can't save the chat
-    }
+    // DISABLED: Don't save during tool execution to prevent race conditions
+    // The chat will be saved after the complete backend response is received
+    console.log('Save before tool execution disabled - chat will be saved after complete response');
+    return;
   }
 
   /**
@@ -207,8 +183,8 @@ export class ToolService {
       
       // First, sanitize the tool name to prevent duplications
       const sanitizedToolName = this.sanitizeToolName(toolName);
-      // Save chat before tool execution
-      await this.saveCurrentChat();
+      // Don't save before tool execution - we'll save at the end of processing
+      // This prevents multiple saves during tool execution
       
       console.log(`Calling tool ${sanitizedToolName} with params:`, params);
       
@@ -253,21 +229,31 @@ export class ToolService {
       const detailedTitle = this.formatToolResultTitle(storageToolName, mappedParams, result);
       
       // Format the response in a flatter structure that's easier for the LLM to process
-      return {
+      const toolResult = {
         role: 'tool',
         content: `${detailedTitle}\n${JSON.stringify(result, null, 2)}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
+      
+      // Don't trigger save here - we'll save at the end of all tool processing
+      // This prevents multiple saves during tool execution
+      
+      return toolResult;
     } catch (error) {
       console.error(`Tool call failed: ${(error as Error).message}`);
       
       // Use the sanitized name for consistency in error messages too
       const errorToolName = this.sanitizeToolName(toolName);
-      return { 
+      const errorResult = { 
         role: 'tool',
         content: `Error from ${errorToolName}: ${(error as Error).message}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
+      
+      // Don't trigger save here - we'll save at the end of all tool processing
+      // This prevents multiple saves during tool execution
+      
+      return errorResult;
     } finally {
       // Reset executing flag after tool call completes using the static method
       ToolService.setToolExecutionState(false);
@@ -276,29 +262,29 @@ export class ToolService {
 
   /**
    * Normalize parameters for backend tools to ensure expected keys are present
+   * No fallbacks - return errors for missing required parameters
    */
   private normalizeParamsForBackend(backendToolName: string, params: any): any {
     const p = { ...(params || {}) };
 
     if (backendToolName === 'list_directory') {
-      // Prefer explicit directory_path; support relative_workspace_path and file_path fallbacks
+      // Only use directory_path, no fallbacks
       if (!p.directory_path) {
-        if (p.relative_workspace_path) p.directory_path = p.relative_workspace_path;
-        else if (p.file_path) p.directory_path = p.file_path;
+        throw new Error(`Missing required parameter 'directory_path' for list_directory tool`);
       }
-      // Remove aliases to avoid backend "unexpected keyword" errors
-      delete p.relative_workspace_path;
-      delete p.file_path;
+      // Remove any unexpected parameters to avoid backend errors
+      const cleanParams: any = { directory_path: p.directory_path };
+      return cleanParams;
     }
 
     if (backendToolName === 'read_file') {
-      // Prefer target_file; support file_path and directory_path fallbacks
+      // Only use target_file, no fallbacks
       if (!p.target_file) {
-        if (p.file_path) p.target_file = p.file_path;
-        else if (p.directory_path) p.target_file = p.directory_path;
+        throw new Error(`Missing required parameter 'target_file' for read_file tool`);
       }
-      delete p.file_path;
-      delete p.directory_path;
+      // Remove any unexpected parameters to avoid backend errors
+      const cleanParams: any = { target_file: p.target_file };
+      return cleanParams;
     }
 
     // run_terminal_cmd: ensure timeout is a number
@@ -369,6 +355,47 @@ export class ToolService {
    */
   private generateToolCallId(): string {
     return Math.floor(Math.random() * 1000000000).toString();
+  }
+
+  /**
+   * Trigger a save after tool execution completes to ensure the chat is saved with the tool results.
+   */
+  private triggerSaveAfterToolExecution(): void {
+    // Try multiple selectors to find the chat component
+    const selectors = [
+      '.llm-chat-container',
+      '.chat-container',
+      '[data-chat-container]'
+    ];
+    
+    let chatComponent = null;
+    for (const selector of selectors) {
+      const component = document.querySelector(selector) as any;
+      if (component && component.saveAfterToolExecution) {
+        chatComponent = component;
+        break;
+      }
+    }
+    
+    if (chatComponent && chatComponent.saveAfterToolExecution) {
+      try {
+        chatComponent.saveAfterToolExecution();
+        console.log('Successfully saved chat after tool execution');
+      } catch (error) {
+        console.error('Failed to save chat after tool execution:', error);
+      }
+    } else {
+      console.log('Chat component not available for saving after tool execution');
+      // Try global save as fallback
+      if ((window as any).saveCurrentChat) {
+        try {
+          (window as any).saveCurrentChat();
+          console.log('Used global save mechanism after tool execution');
+        } catch (error) {
+          console.error('Global save also failed after tool execution:', error);
+        }
+      }
+    }
   }
 }
 

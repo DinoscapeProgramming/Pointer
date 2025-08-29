@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileSystemItem, TabInfo } from '../types';
 import { getIconForFile, PreviewIcon } from './FileIcons';
 import ContextMenu from './ContextMenu';
@@ -72,6 +72,17 @@ const Tabs: React.FC<TabsProps> = ({
     summary: '',
     isStreaming: false,
   });
+
+  // Add cleanup effect to reset streaming state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset streaming state when component unmounts
+      setSummaryDialog(prev => ({
+        ...prev,
+        isStreaming: false
+      }));
+    };
+  }, []);
 
   const handleTabClick = (fileId: string) => {
     console.log('Tab clicked:', fileId);
@@ -157,6 +168,16 @@ const Tabs: React.FC<TabsProps> = ({
       
       let accumulatedSummary = '';
       
+      // Add timeout to ensure streaming state is reset
+      const timeoutId = setTimeout(() => {
+        console.warn('File summarization timeout - resetting streaming state');
+        setSummaryDialog(prev => ({
+          ...prev,
+          isStreaming: false
+        }));
+        showToast('File summarization timed out', 'warning');
+      }, 30000); // 30 second timeout
+      
       console.log("Requesting streaming summary for file:", file.path);
       
       const summary = await AIFileService.getFileSummary(
@@ -170,6 +191,9 @@ const Tabs: React.FC<TabsProps> = ({
           }));
         }
       );
+
+      // Clear timeout since operation completed
+      clearTimeout(timeoutId);
 
       setSummaryDialog(prev => ({
         ...prev,
@@ -430,7 +454,7 @@ const Tabs: React.FC<TabsProps> = ({
                       // Get the current directory from FileSystemService
                       const currentDir = FileSystemService.getCurrentDirectory();
                       
-                      const result = await ExplorerService.openInExplorer(file.path, currentDir);
+                      const result = await ExplorerService.openInExplorer(file.path, currentDir || undefined);
                       if (!result.success) {
                         console.error('Failed to open in explorer:', result.error);
                         showToast('Failed to open in explorer', 'error');

@@ -6,6 +6,7 @@ interface VirtualizedChatMessagesProps {
   messages: ExtendedMessage[];
   isAnyProcessing?: boolean;
   onEditMessage?: (index: number) => void;
+  onContinue?: (messageIndex: number) => void;
   containerHeight: number;
 }
 
@@ -16,6 +17,7 @@ const VirtualizedChatMessages = memo(({
   messages, 
   isAnyProcessing = false, 
   onEditMessage,
+  onContinue,
   containerHeight 
 }: VirtualizedChatMessagesProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,7 +62,7 @@ const VirtualizedChatMessages = memo(({
       let timeoutId: number;
       return (e: React.UIEvent<HTMLDivElement>) => {
         clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => handleScroll(e), 16); // ~60fps
+        timeoutId = setTimeout(() => handleScroll(e), 16) as unknown as number; // ~60fps
       };
     },
     [handleScroll]
@@ -94,6 +96,7 @@ const VirtualizedChatMessages = memo(({
                 index={visibleItems.startIndex + index}
                 isAnyProcessing={isAnyProcessing}
                 onEditMessage={onEditMessage}
+                onContinue={onContinue}
               />
             </div>
           ))}

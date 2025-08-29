@@ -3,6 +3,7 @@ import lmStudio from './LMStudioService';
 import { FileChangeEventService } from './FileChangeEventService';
 import { cleanAIResponse } from '../utils/textUtils';
 import { PathConfig } from '../config/paths';
+import { FileSystemItem } from '../types';
 
 interface FileOperation {
   path: string;
@@ -168,7 +169,11 @@ Return ONLY the file extension.`;
 
       // If no Pointer:Code blocks found, try to extract regular markdown code blocks
       if (operations.length === 0) {
-        const codeBlockRegex = /```(\w+)?\s*([\s\S]*?)```/g;
+        // Only match proper code blocks (triple backticks with newlines or language)
+        // This excludes inline code (single backticks) which don't have newlines
+        // More specific pattern to ensure we only match triple backticks
+        // Each pattern must start and end with exactly three backticks
+        const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
         const pendingOperations: Promise<FileOperation | null>[] = [];
         
         while ((match = codeBlockRegex.exec(aiResponse)) !== null) {
@@ -444,17 +449,17 @@ Return ONLY the final formatted code without any explanations. The code should b
       // Merge the states more carefully
       if (window.fileSystem) {
         // Create a new merged state
-        const mergedItems = { ...window.fileSystem.items };
+        const mergedItems: Record<string, FileSystemItem> = { ...window.fileSystem };
         
         // Preserve any items that have active tabs
         Object.entries(currentItems).forEach(([id, item]) => {
           if (id.startsWith('file_') || id === 'welcome') {
-            mergedItems[id] = item;
+            mergedItems[id] = item as FileSystemItem;
           }
         });
         
         // Update the file system with merged state
-        window.fileSystem.items = mergedItems;
+        window.fileSystem = mergedItems;
       }
       
       // Get current directory and reload its contents
@@ -639,7 +644,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
                     const currentSettings = await FileSystemService.readSettingsFiles(settingsPath);
                     if (currentSettings.success && currentSettings.settings.models) {
                       currentSettings.settings.models[assignedModelId].id = modelId;
-                      await FileSystemService.writeSettingsFiles(settingsPath, currentSettings.settings);
+                      await FileSystemService.saveSettingsFiles(settingsPath, currentSettings.settings);
                       console.log(`Updated settings with discovered model ID: ${modelId}`);
                     }
                   } catch (updateError) {
@@ -886,7 +891,8 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
             // Clean up the response
             fullText = fullText
               .replace(/undefined$/, '')
-              .replace(/```\w*\s*|\s*```/g, '')
+              .replace(/```[\w-]*\n[\s\S]*?```/g, '') // Remove proper code blocks
+              .replace(/```[\w-]*\s+[\s\S]*?```/g, '') // Remove code blocks with language on same line
               .trim();
               
             return fullText;
@@ -1121,7 +1127,8 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
             // Clean up the response
             fullText = fullText
               .replace(/undefined$/, '')
-              .replace(/```\w*\s*|\s*```/g, '')
+              .replace(/```[\w-]*\n[\s\S]*?```/g, '') // Remove proper code blocks
+              .replace(/```[\w-]*\s+[\s\S]*?```/g, '') // Remove code blocks with language on same line
               .trim();
               
             return fullText;

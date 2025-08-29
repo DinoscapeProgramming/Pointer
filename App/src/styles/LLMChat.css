@@ -98,6 +98,20 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Tool Bundle Styles */
+.tool-bundle {
+  /* Clean, minimal styling without hover effects */
+}
+
+.tool-bundle-header-content {
+  flex: 1;
+}
+
+.tool-bundle-icon {
+  color: var(--accent-color);
+  opacity: 0.8;
+}
+
 /* Enhanced link styling for chat messages */
 .message-content a {
   color: var(--accent-color);
@@ -424,11 +438,12 @@
 }
 
 .message-content code {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-code, rgba(0, 0, 0, 0.2));
   padding: 2px 4px;
   border-radius: 3px;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
   font-size: 12px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
 }
 
 .message-content pre {

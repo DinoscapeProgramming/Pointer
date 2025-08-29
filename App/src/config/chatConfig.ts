@@ -10,54 +10,15 @@ export interface AttachedFile {
 // Extend the Message interface to include attachments
 export interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
-  tool_call_id?: string;
   id?: string; // Unique message identifier
   messageId?: string; // Change from number to string for UUIDs
-  tool_calls?: Array<{
-    id: string;
-    name: string;
-    arguments: string | object;
-  }>;
+  timestamp?: string;
 }
 
 // Simplified system message
 export const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
-
-read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
-
-delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
-
-move_file (move/rename a file): function_call: {"name": "move_file","arguments": {"source_path": "old/path.txt","destination_path": "new/path.txt","create_directories": true}}
-
-copy_file (copy a file): function_call: {"name": "copy_file","arguments": {"source_path": "source/file.txt","destination_path": "dest/file.txt","create_directories": true}}
-
-grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
-
-web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
-
-fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
-
-run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
-
- list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"directory_path": "path/to/directory"}}
-
-get_codebase_overview (get comprehensive codebase overview): function_call: {"name": "get_codebase_overview","arguments": {}}
-
-search_codebase (search for code elements): function_call: {"name": "search_codebase","arguments": {"query": "function_name","element_types": "function,class","limit": 20}}
-
-get_file_overview (get file overview with code elements): function_call: {"name": "get_file_overview","arguments": {"file_path": "path/to/file.ts"}}
-
-get_codebase_indexing_info (get indexing setup information): function_call: {"name": "get_codebase_indexing_info","arguments": {}}
-
-cleanup_old_codebase_cache (remove old workspace cache): function_call: {"name": "cleanup_old_codebase_cache","arguments": {}}
-
-get_ai_codebase_context (get comprehensive AI-friendly codebase summary): function_call: {"name": "get_ai_codebase_context","arguments": {}}
-
-query_codebase_natural_language (ask natural language questions about codebase): function_call: {"name": "query_codebase_natural_language","arguments": {"query": "How many React components are there?"}}
-
-get_relevant_codebase_context (get context for specific tasks): function_call: {"name": "get_relevant_codebase_context","arguments": {"query": "implementing user authentication","max_files": 5}}
 
 Code Block Formats:
 To create or edit files, use one of these formats to specify the filename & autosave the file:
@@ -94,11 +55,6 @@ This automatically saves the file into the specified location and will render an
 
 Important: The codebase is automatically indexed when a workspace is opened. You can use get_codebase_overview to understand the project structure, search_codebase to find specific functions/classes, and get_file_overview to understand individual files before reading them.
 
-Advanced Codebase Tools:
-- get_ai_codebase_context(): Get comprehensive project summary with important files, patterns, and architecture analysis
-- query_codebase_natural_language(): Ask questions like "How many React components?" or "What files handle authentication?"
-- get_relevant_codebase_context(): Get targeted context for specific tasks like "implementing login system"
-
 Rules:
 1. Use exact function_call format shown above
 2. Never guess about code - verify with tools
@@ -134,32 +90,6 @@ export const generateEnhancedSystemMessage = (codebaseContext?: string): Extende
 export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
-
-read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
-
-// File creation and editing: use triple backtick code blocks with filename or line-edit header/comment (see below)
-
-delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
-
-move_file (move/rename a file): function_call: {"name": "move_file","arguments": {"source_path": "old/path.txt","destination_path": "new/path.txt","create_directories": true}}
-
-copy_file (copy a file): function_call: {"name": "copy_file","arguments": {"source_path": "source/file.txt","destination_path": "dest/file.txt","create_directories": true}}
-
-grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
-
-web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
-
-fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
-
-run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
-
- list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"directory_path": "path/to/directory"}}
-
-get_codebase_overview (get comprehensive codebase overview): function_call: {"name": "get_codebase_overview","arguments": {}}
-
-search_codebase (search for code elements): function_call: {"name": "search_codebase","arguments": {"query": "function_name","element_types": "function,class","limit": 20}}
-
-get_file_overview (get file overview with code elements): function_call: {"name": "get_file_overview","arguments": {"file_path": "path/to/file.ts"}}
 
 Code Block Formats:
 When providing code, use one of these formats to specify the filename & autosave the file:
@@ -266,7 +196,13 @@ export const getFileExtension = (language: string): string => {
 
 // Function to generate a valid tool call ID
 export const generateValidToolCallId = (): string => {
-  return `call_${Math.random().toString(36).substring(2, 10)}`;
+  // Generate exactly 9 characters: 5 random lowercase letters/numbers + 4 more
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 9; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 };
 
 // Function to generate prompts for specific purposes

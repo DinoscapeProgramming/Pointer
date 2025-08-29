@@ -999,6 +999,29 @@ async def health_check():
             content={"status": "unhealthy", "error": str(e)}
         )
 
+@app.post("/fetch_webpage")
+async def fetch_webpage_endpoint(request: dict):
+    """Fetch webpage content and metadata."""
+    try:
+        from tools_handlers import fetch_webpage
+        
+        if not request.get("url"):
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        url = request["url"]
+        print(f"Fetching webpage: {url}")
+        
+        result = await fetch_webpage(url)
+        print(f"Fetch result: success={result.get('success')}, content_length={len(result.get('content', '')) if result.get('content') else 0}")
+        
+        return result
+    except Exception as e:
+        print(f"Error in fetch_webpage endpoint: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
 @app.post("/open-directory")
 async def open_directory():
     """Open a directory using dialog and return its contents."""
@@ -1602,8 +1625,9 @@ async def save_chat(chat_id: str, request: ChatMessage):
         if not isinstance(request.messages, list):
             raise ValueError("Request messages must be a list")
         
-        # Validate each message
+        # Validate each message and track tool call IDs to prevent duplicates
         valid_messages = []
+        seen_tool_call_ids = set()
         for i, msg in enumerate(request.messages):
             if not isinstance(msg, dict):
                 print(f"Skipping invalid message {i}: not a dictionary")
@@ -1615,34 +1639,70 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 print(f"Skipping invalid message {i}: invalid role '{msg['role']}'")
                 continue
             
+            # Check for duplicate tool messages
+            if msg['role'] == 'tool' and 'tool_call_id' in msg:
+                tool_call_id = msg['tool_call_id']
+                if tool_call_id in seen_tool_call_ids:
+                    print(f"Skipping duplicate tool message {i} with ID: {tool_call_id}")
+                    continue
+                seen_tool_call_ids.add(tool_call_id)
+            
             # Clean the message content
             if 'content' in msg and msg['content'] is not None:
-                # Remove only clearly problematic content, not legitimate tool results
                 content = str(msg['content'])
-                if ('Used get codebase overview:' in content and 'Success\n{' in content):
+                
+                # Only clear content for clearly malformed patterns, not legitimate tool results
+                # Tool responses often contain "Success" and JSON objects, which are legitimate
+                if (msg['role'] == 'tool' and 
+                    ('function_call:' in content or 'tool_call:' in content or 'ERROR:' in content)):
+                    # Only clear tool messages that contain malformed function call syntax
                     print(f"Cleaning malformed tool response from message {i}")
                     msg['content'] = ''
-                elif any(bad_content in content for bad_content in [
-                    'function_call:', 'tool_call:', 'ERROR:', 'DEBUG:'
-                ]):
-                    # Only clear content if it's clearly malformed, not legitimate tool results
-                    if ('Used get codebase overview:' in content and 'Success\n{' in content):
-                        print(f"Cleaning malformed tool response from message {i}")
-                        msg['content'] = ''
-                    # Keep other content that might be legitimate tool results
+                elif (msg['role'] != 'tool' and 
+                      any(bad_content in content for bad_content in [
+                          'function_call:', 'tool_call:', 'ERROR:', 'DEBUG:'
+                      ])):
+                    # For non-tool messages, be more aggressive about cleaning
+                    print(f"Cleaning malformed content from message {i}")
+                    msg['content'] = ''
                 else:
+                    # Keep legitimate content, including tool results
                     msg['content'] = content
             else:
                 msg['content'] = ''
+            
+            # Preserve tool_calls field for assistant messages
+            if msg['role'] == 'assistant' and 'tool_calls' in msg and msg['tool_calls']:
+                # Ensure tool_calls is properly formatted
+                if isinstance(msg['tool_calls'], list):
+                    # Validate and clean each tool call
+                    cleaned_tool_calls = []
+                    for tc in msg['tool_calls']:
+                        if isinstance(tc, dict) and 'function' in tc:
+                            cleaned_tc = {
+                                'id': tc.get('id', f"tool_{int(time.time())}_{i}"),
+                                'type': tc.get('type', 'function'),
+                                'function': {
+                                    'name': tc['function'].get('name', 'unknown'),
+                                    'arguments': tc['function'].get('arguments', '{}')
+                                }
+                            }
+                            cleaned_tool_calls.append(cleaned_tc)
+                    msg['tool_calls'] = cleaned_tool_calls
+                    print(f"Preserved {len(cleaned_tool_calls)} tool calls for assistant message {i}")
             
             valid_messages.append(msg)
         
         print(f"Validated {len(valid_messages)} messages out of {len(request.messages)}")
         
-        # Debug: log tool message content
+        # Debug: log tool message content and assistant tool_calls
         for i, msg in enumerate(valid_messages):
             if msg.get('role') == 'tool':
                 print(f"Tool message {i}: content='{msg.get('content', '')}' (length: {len(msg.get('content', ''))})")
+            elif msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                print(f"Assistant message {i}: has {len(msg['tool_calls'])} tool_calls")
+                for j, tc in enumerate(msg['tool_calls']):
+                    print(f"  Tool call {j}: name='{tc.get('function', {}).get('name', 'unknown')}', args='{tc.get('function', {}).get('arguments', '{}')}'")
         
         # Create clean chat data
         chat_data = {

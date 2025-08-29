@@ -510,8 +510,10 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
         </div>
       </div>
       
+      {/* TODO: Add GitHubSettings component */}
       {isGitHubSettingsOpen && (
-        <GitHubSettings onClose={() => setIsGitHubSettingsOpen(false)} />
+        <div>GitHub Settings placeholder</div>
+        // <GitHubSettings onClose={() => setIsGitHubSettingsOpen(false)} />
       )}
     </>
   );

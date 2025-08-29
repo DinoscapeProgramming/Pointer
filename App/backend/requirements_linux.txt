@@ -7,5 +7,5 @@ pydantic==2.4.2
 PyQt5==5.15.9
 python-multipart==0.0.9
 starlette>=0.27.0
-spacy
-websockets 
+websockets
+google-search-results==2.4.2 

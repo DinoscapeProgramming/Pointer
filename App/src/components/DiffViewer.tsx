@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { FileChangeEventService } from '../services/FileChangeEventService';
 import { FileSystemService } from '../services/FileSystemService';
 import { getIconForFile } from './FileIcons';
+import { ThemeSettings } from '../types';
 
 interface DiffChange {
   filePath: string;
@@ -455,9 +456,10 @@ export const DiffViewer: React.FC = () => {
       let themeName = 'vs-dark'; // default fallback
       
       // If we have a custom theme, use it
-      if (currentTheme && (currentTheme.name !== 'vs-dark' || 
-          Object.keys(currentTheme.editorColors || {}).length > 0 || 
-          (currentTheme.tokenColors || []).length > 0)) {
+      const themeSettings = currentTheme as ThemeSettings;
+      if (currentTheme && (themeSettings.name !== 'vs-dark' || 
+          Object.keys(themeSettings.editorColors || {}).length > 0 || 
+          (themeSettings.tokenColors || []).length > 0)) {
         themeName = 'custom-theme';
         // Ensure the custom theme is applied
         if (window.applyCustomTheme) {
@@ -839,14 +841,19 @@ export const DiffViewer: React.FC = () => {
         let themeName = 'vs-dark'; // default fallback
         
         // If we have a custom theme, use it
-        if (currentTheme && (currentTheme.name !== 'vs-dark' || 
-            Object.keys(currentTheme.editorColors || {}).length > 0 || 
-            (currentTheme.tokenColors || []).length > 0)) {
+        const themeSettings = currentTheme as ThemeSettings;
+        if (currentTheme && (themeSettings.name !== 'vs-dark' || 
+            Object.keys(themeSettings.editorColors || {}).length > 0 || 
+            (themeSettings.tokenColors || []).length > 0)) {
           themeName = 'custom-theme';
         }
         
-        // Update the diff editor theme
-        diffEditorRef.current.updateOptions({ theme: themeName });
+        // Update the diff editor theme - need to recreate the editor for theme changes
+        // diffEditorRef.current.updateOptions({ theme: themeName });
+        // For now, just apply the custom theme function
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
       }
     };
     

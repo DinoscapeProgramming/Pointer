@@ -6,6 +6,9 @@
  * Removes all markdown code blocks (triple backticks) from a string
  * and returns the cleaned content.
  * 
+ * This function specifically handles triple backticks (```) and excludes
+ * single backticks (`) which are used for inline code.
+ * 
  * This function handles both:
  * 1. Code blocks with language specifiers: ```javascript ... ```
  * 2. Code blocks without language specifiers: ``` ... ```
@@ -16,16 +19,17 @@
 export function removeMarkdownCodeBlocks(content: string): string {
   if (!content) return content;
   
-  // Replace code blocks with language specifier: ```javascript ... ```
+  // Replace code blocks with language specifier: ```javascript\n... ```
+  // Ensure we only match triple backticks, not single backticks
   let result = content.replace(/```[\w-]*\n([\s\S]*?)```/g, (_, code) => code);
   
-  // Replace code blocks without language specifier: ``` ... ```
+  // Replace code blocks without language specifier: ```\n... ```
   result = result.replace(/```\n([\s\S]*?)```/g, (_, code) => code);
   
-  // Handle edge case where language specifier and code are on the same line
-  result = result.replace(/```([\w-]*) ([\s\S]*?)```/g, (_, lang, code) => code);
+  // Handle edge case where language specifier and code are on the same line: ```javascript code```
+  result = result.replace(/```([\w-]+)\s+([\s\S]*?)```/g, (_, lang, code) => code);
   
-  // Replace any stray backticks (in case the regex missed some)
+  // Replace any stray triple backticks (in case the regex missed some)
   result = result.replace(/^```[\w-]*$/gm, '').replace(/^```$/gm, '');
   
   return result.trim();
@@ -61,16 +65,22 @@ export function cleanAIResponse(content: string): string {
 /**
  * Checks if a string contains markdown code blocks (triple backticks)
  * 
+ * This function specifically looks for triple backticks (```) and excludes
+ * single backticks (`) which are used for inline code.
+ * 
  * @param content The string content to check
  * @returns boolean True if the content contains code blocks
  */
 export function containsMarkdownCodeBlocks(content: string): boolean {
   if (!content) return false;
   
-  // Check for code blocks with or without language specifier
+  // Check for proper code blocks (triple backticks with newlines)
+  // This excludes inline code (single backticks) which don't have newlines
+  // More specific patterns to ensure we only match triple backticks
+  // Each pattern must start and end with exactly three backticks
   return /```[\w-]*\n[\s\S]*?```/g.test(content) || 
          /```\n[\s\S]*?```/g.test(content) ||
-         /```[\w-]* [\s\S]*?```/g.test(content);
+         /```[\w-]+\s+[\s\S]*?```/g.test(content);
 }
 
 /**
@@ -210,6 +220,7 @@ export const extractCodeBlocks = (content: string) => {
   };
 
   // Use a non-global regex to prevent infinite loops
+  // More specific pattern to ensure we only match triple backticks
   const codeBlockRegex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/;
   let remainingContent = content;
   let currentOffset = 0;

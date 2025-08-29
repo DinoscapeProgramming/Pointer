@@ -44,6 +44,16 @@ export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type?: 'function';
+    name?: string;
+    arguments?: string | object;
+    function?: {
+      name: string;
+      arguments: string;
+    };
+  }>;
 }
 
 export interface FileSystemState {
@@ -108,6 +118,7 @@ export interface ThemeSettings {
     activityBarBg?: string;
     activityBarFg?: string;
     inlineCodeColor?: string;
+    textMuted?: string;
     
     // Explorer Colors
     explorerFolderFg?: string;

@@ -63,7 +63,7 @@ export class FileSystemService {
       const data = await response.json();
       
       // Store file paths
-      Object.values(data.items).forEach((item: FileSystemItem) => {
+      Object.values(data.items as Record<string, FileSystemItem>).forEach((item: FileSystemItem) => {
         if (item.type === 'file') {
           this.filePaths.set(item.id, this.normalizePath(item.path));
         }
@@ -119,7 +119,7 @@ export class FileSystemService {
       this.setCurrentDirectory(data.path);
 
       // Store file paths
-      Object.values(data.items).forEach((item: FileSystemItem) => {
+      Object.values(data.items as Record<string, FileSystemItem>).forEach((item: FileSystemItem) => {
         if (item.type === 'file') {
           this.filePaths.set(item.id, this.normalizePath(item.path));
         }
@@ -160,7 +160,7 @@ export class FileSystemService {
       this.setCurrentDirectory(path);
 
       // Store file paths
-      Object.values(data.items).forEach((item: FileSystemItem) => {
+      Object.values(data.items as Record<string, FileSystemItem>).forEach((item: FileSystemItem) => {
         if (item.type === 'file') {
           this.filePaths.set(item.id, this.normalizePath(item.path));
         }
@@ -537,7 +537,7 @@ export class FileSystemService {
       const data = await response.json();
 
       // Update file paths after refresh
-      Object.values(data.items).forEach((item: FileSystemItem) => {
+      Object.values(data.items as Record<string, FileSystemItem>).forEach((item: FileSystemItem) => {
         if (item.type === 'file') {
           // Store both normalized and original paths for more robust lookup
           const normalizedPath = this.normalizePath(item.path);

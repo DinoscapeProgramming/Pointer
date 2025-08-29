@@ -8,16 +8,12 @@ import { showToast } from '../services/ToastService';
 import { FileViewer, isImageFile, isBinaryFile, isPdfFile, isDatabaseFile } from './FileViewer';
 import Modal from './Modal';
 import PreviewPane from './PreviewPane';
+import lmStudio from '../services/LMStudioService';
 
 // Get access to the App's applyCustomTheme function through the window object
 declare global {
   interface Window {
-    getCurrentFile: () => { path: string; } | null;
     editor?: monaco.editor.IStandaloneCodeEditor;
-    reloadFileContent?: (fileId: string) => Promise<void>;
-    fileSystem?: Record<string, FileSystemItem>;
-    applyCustomTheme?: () => void;
-    loadSettings?: () => Promise<void>;
     editorSettings?: { autoAcceptGhostText: boolean };
   }
 }
@@ -86,6 +82,17 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady, se
     isLoading: false,
     isStreaming: false
   });
+
+  // Add cleanup effect to reset streaming state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset streaming state when component unmounts
+      setFunctionExplanationDialog(prev => ({
+        ...prev,
+        isStreaming: false
+      }));
+    };
+  }, []);
 
   // Normalize content once when file changes
   useEffect(() => {
@@ -760,8 +767,10 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           // Strip <think> tags from AI response
           cleanedResponse = stripThinkTags(cleanedResponse);
           
-          // Remove markdown code blocks if present
-          cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+          // Remove markdown code blocks if present (only proper code blocks, not inline code)
+          // Each pattern must start and end with exactly three backticks
+          cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
+          cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
           // Remove any language identifiers
           cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
           
@@ -1095,8 +1104,10 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         // Strip <think> tags from AI response
         cleanedResponse = stripThinkTags(cleanedResponse);
         
-        // Remove markdown code blocks if present
-        cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+        // Remove markdown code blocks if present (only proper code blocks, not inline code)
+        // Each pattern must start and end with exactly three backticks
+        cleanedResponse = cleanedResponse.replace(/```[\w-]*\n[\s\S]*?```/g, ''); // Remove proper code blocks
+        cleanedResponse = cleanedResponse.replace(/```[\w-]*\s+[\s\S]*?```/g, ''); // Remove code blocks with language on same line
         // Remove any language identifiers
         cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
         
@@ -1167,7 +1178,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           }, 2000);
         } else {
           console.error(`Save failed:`, result);
-          throw new Error(result.error || 'Save failed');
+          throw new Error('Save failed');
         }
       } else {
         console.log(`Skipping save - file.path: ${file?.path}, contentChanged: ${contentChangedRef.current}`);
@@ -1686,6 +1697,16 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
       // Use a string builder to collect the streaming response
       let streamedExplanation = '';
       
+      // Add timeout to ensure streaming state is reset
+      const timeoutId = setTimeout(() => {
+        console.warn('Function explanation timeout - resetting streaming state');
+        setFunctionExplanationDialog(prev => ({
+          ...prev,
+          isStreaming: false
+        }));
+        showToast('Function explanation timed out', 'warning');
+      }, 30000); // 30 second timeout
+      
       // Call the function explanation service with streaming
       await AIFileService.getFunctionExplanation(
         file.path,
@@ -1702,6 +1723,9 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           }));
         }
       );
+      
+      // Clear timeout since operation completed
+      clearTimeout(timeoutId);
       
       // Update with the final result and mark streaming as complete
       setFunctionExplanationDialog(prev => ({
@@ -1848,15 +1872,14 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
               setShowDiff(false);
             }}
             title="AI Assistant"
-          >
-            {renderExplanationContent()}
-          </Modal>
+            content={renderExplanationContent()}
+          />
         )}
       </div>
     );
   } else {
     // Render FileViewer for non-text files
-    return <FileViewer file={file} />;
+    return <FileViewer file={file} fileId={fileId} />;
   }
 };
 

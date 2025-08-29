@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
 import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
 import * as monaco from 'monaco-editor';
@@ -516,6 +516,17 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [filteredModels, setFilteredModels] = useState<ModelInfo[]>([]);
+  const [autocompletionConnectionStatus, setAutocompletionConnectionStatus] = useState<{
+    connected: boolean;
+    error: string | null;
+    testing: boolean;
+    url: string | null;
+  }>({
+    connected: false,
+    error: null,
+    testing: false,
+    url: null
+  });
 
   useEffect(() => {
     if (isVisible) {
@@ -658,9 +669,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
           
           // Auto-discover models for configurations with empty model IDs
           for (const [key, modelConfig] of Object.entries(validatedModels)) {
-            if ((!modelConfig.id || modelConfig.id.trim() === '') && modelConfig.apiEndpoint) {
+            const config = modelConfig as any;
+            if ((!config.id || config.id.trim() === '') && config.apiEndpoint) {
               // Discover models in the background
-              fetchAvailableModels(modelConfig.apiEndpoint, modelConfig.apiKey);
+              fetchAvailableModels(config.apiEndpoint, config.apiKey);
               break; // Only discover for one config to avoid overwhelming the API
             }
           }
@@ -1167,6 +1179,81 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     loadPasswordVisibility();
   }, [activeTab]);
 
+  const testAutocompletionConnection = useCallback(async () => {
+    setAutocompletionConnectionStatus(prev => ({ ...prev, testing: true, error: null, url: null }));
+    
+    let testEndpoint = '';
+    
+    try {
+      // Get the autocompletion model configuration
+      const autocompletionModelId = modelAssignments.autocompletion;
+      const autocompletionConfig = modelConfigs[autocompletionModelId];
+      
+      if (!autocompletionConfig) {
+        throw new Error('No autocompletion model configured');
+      }
+      
+      if (!autocompletionConfig.apiEndpoint) {
+        throw new Error('No API endpoint configured for autocompletion model');
+      }
+      
+      // Test the connection by making a simple request
+      testEndpoint = autocompletionConfig.apiEndpoint.endsWith('/v1') 
+        ? autocompletionConfig.apiEndpoint 
+        : autocompletionConfig.apiEndpoint.endsWith('/') 
+          ? `${autocompletionConfig.apiEndpoint}v1` 
+          : `${autocompletionConfig.apiEndpoint}/v1`;
+      
+      const response = await fetch(`${testEndpoint}/models`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(autocompletionConfig.apiKey && { 'Authorization': `Bearer ${autocompletionConfig.apiKey}` })
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API returned ${response.status}: ${errorText}`);
+      }
+      
+      setAutocompletionConnectionStatus({
+        connected: true,
+        error: null,
+        testing: false,
+        url: testEndpoint
+      });
+      
+    } catch (error) {
+      console.error('Autocompletion connection test failed:', error);
+      setAutocompletionConnectionStatus({
+        connected: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        testing: false,
+        url: testEndpoint
+      });
+    }
+  }, [modelAssignments.autocompletion, modelConfigs]);
+
+  // Test autocompletion connection when model assignments change
+  useEffect(() => {
+    if (modelAssignments.autocompletion && modelConfigs[modelAssignments.autocompletion]) {
+      testAutocompletionConnection();
+    }
+  }, [modelAssignments.autocompletion, modelConfigs, testAutocompletionConnection]);
+
+  // Test autocompletion connection when the assigned model's configuration changes
+  useEffect(() => {
+    const autocompletionModelId = modelAssignments.autocompletion;
+    if (autocompletionModelId && modelConfigs[autocompletionModelId]) {
+      const config = modelConfigs[autocompletionModelId];
+      // Only test if we have the necessary configuration
+      if (config.apiEndpoint) {
+        testAutocompletionConnection();
+      }
+    }
+  }, [modelConfigs, modelAssignments.autocompletion, testAutocompletionConnection]);
+
   // Add function to handle password visibility toggle
   const handleTogglePasswordVisibility = async () => {
     const newVisibility = !showPassword;
@@ -1552,7 +1639,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 }}
                                 placeholder="Enter the model ID"
                               />
-                              {isLoadingModels && (
+                              {isLoadingModels && !autocompletionConnectionStatus.error && (
                                 <div style={{
                                   position: 'absolute',
                                   right: '8px',
@@ -1562,6 +1649,22 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                   color: 'var(--text-secondary)'
                                 }}>
                                   Loading...
+                                </div>
+                              )}
+                              {autocompletionConnectionStatus.error && modelAssignments.autocompletion === activeTab && (
+                                <div style={{
+                                  position: 'absolute',
+                                  right: '8px',
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
+                                  fontSize: '16px',
+                                  color: 'red',
+                                  fontWeight: 'bold',
+                                  cursor: 'help'
+                                }}
+                                title={`${autocompletionConnectionStatus.error}${autocompletionConnectionStatus.url ? `\nURL: ${autocompletionConnectionStatus.url}/models` : ''}`}
+                                >
+                                  !
                                 </div>
                               )}
                               {showModelSuggestions && (
@@ -1607,7 +1710,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               )}
                             </div>
                             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-
+                              {autocompletionConnectionStatus.testing && modelAssignments.autocompletion === activeTab && (
+                                <span>Testing connection...</span>
+                              )}
                             </p>
                           </div>
                         </div>
