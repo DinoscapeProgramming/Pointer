@@ -189,7 +189,7 @@ Create `.env.local` for environment-specific settings:
 # Site configuration
 NEXT_PUBLIC_SITE_URL=https://pointr.sh
 NEXT_PUBLIC_DISCORD_INVITE=https://discord.gg/vhgc8THmNk
-NEXT_PUBLIC_GITHUB_URL=https://github.com/f1shyondrugs/Pointer
+NEXT_PUBLIC_GITHUB_URL=https://github.com/PointerIDE/Pointer
 
 # Analytics (optional)
 NEXT_PUBLIC_GA_ID=your-google-analytics-id
