@@ -52,7 +52,7 @@ A comprehensive development suite consisting of a modern code editor, community 
 
 ### One-Command Setup (Code Editor)
 ```bash
-git clone https://github.com/f1shyondrugs/Pointer.git
+git clone https://github.com/PointerIDE/Pointer.git
 cd Pointer/App
 yarn install && pip install -r backend/requirements.txt
 yarn dev
