@@ -548,6 +548,8 @@ async function createWindow() {
   }
 }
 
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
   console.log('Electron app is ready.');
