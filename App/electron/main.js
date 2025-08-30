@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV !== 'production';
 const DiscordRPC = require('discord-rpc');
@@ -433,13 +433,11 @@ async function createWindow() {
     // Handle external links - open them in the default browser
     mainWindow.webContents.on('new-window', (event, navigationUrl) => {
       event.preventDefault();
-      const { shell } = require('electron');
       shell.openExternal(navigationUrl);
     });
 
     // Handle link clicks within the app
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      const { shell } = require('electron');
       shell.openExternal(url);
       return { action: 'deny' };
     });
@@ -562,7 +560,6 @@ app.whenReady().then(async () => {
   createSplashScreen();
   
   if (isDev) {
-    const session = require('electron').session;
     await session.defaultSession.clearCache();
     console.log('Cache cleared');
   }
@@ -744,8 +741,6 @@ ipcMain.handle('get-discord-rpc-settings', async () => {
 // Open file/folder in system explorer
 ipcMain.handle('open-in-explorer', async (event, filePath) => {
   try {
-    const { shell } = require('electron');
-    
     // Check if the file/folder exists
     if (!fs.existsSync(filePath)) {
       throw new Error(`Path does not exist: ${filePath}`);
@@ -772,7 +767,6 @@ ipcMain.handle('open-in-explorer', async (event, filePath) => {
 // Open external links in default browser
 ipcMain.handle('open-external', async (event, url) => {
   try {
-    const { shell } = require('electron');
     await shell.openExternal(url);
     return { success: true };
   } catch (error) {
