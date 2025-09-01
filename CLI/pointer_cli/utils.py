@@ -198,13 +198,41 @@ def find_files(
     if directory is None:
         directory = Path.cwd()
     
-    if not recursive:
-        return list(directory.glob(pattern))
+    # Handle OR patterns like "pattern1|pattern2|pattern3"
+    if '|' in pattern:
+        patterns = [p.strip() for p in pattern.split('|')]
+        all_files = []
+        
+        for single_pattern in patterns:
+            if not recursive:
+                files = list(directory.glob(single_pattern))
+            else:
+                files = list(directory.rglob(single_pattern))
+            
+            # Filter hidden files
+            if not include_hidden:
+                files = [f for f in files if not f.name.startswith('.')]
+            
+            all_files.extend(files)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_files = []
+        for file_path in all_files:
+            if file_path not in seen:
+                seen.add(file_path)
+                unique_files.append(file_path)
+        
+        return unique_files
     
-    files = []
-    for file_path in directory.rglob(pattern):
-        if not include_hidden and file_path.name.startswith('.'):
-            continue
-        files.append(file_path)
+    # Single pattern (original behavior)
+    if not recursive:
+        files = list(directory.glob(pattern))
+    else:
+        files = list(directory.rglob(pattern))
+    
+    # Filter hidden files
+    if not include_hidden:
+        files = [f for f in files if not f.name.startswith('.')]
     
     return files
