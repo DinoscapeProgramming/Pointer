@@ -27,13 +27,13 @@ class TestConfig:
         config = Config()
         
         config.initialize(
-            api_base_url="http://localhost:9000",
+            api_base_url="http://localhost:1234",
             model_name="gpt-oss-20b",
             auto_run_mode=False,
             show_ai_responses=False
         )
         
-        assert config.api.base_url == "http://localhost:9000"
+        assert config.api.base_url == "http://localhost:1234"
         assert config.api.model_name == "gpt-oss-20b"
         assert config.mode.auto_run_mode is False
         assert config.ui.show_ai_responses is False
@@ -69,11 +69,7 @@ class TestConfig:
         assert new_mode is False
         assert config.mode.auto_run_mode is False
         
-        # Test dry-run toggle
-        assert config.mode.dry_run_mode is False
-        new_mode = config.toggle_dry_run_mode()
-        assert new_mode is True
-        assert config.mode.dry_run_mode is True
+
         
         # Test AI responses toggle
         assert config.ui.show_ai_responses is True
@@ -103,8 +99,6 @@ class TestConfig:
         
         # Test mode config update
         config.update_mode_config(
-            auto_run_mode=False,
-            confirm_changes=True
+            auto_run_mode=False
         )
         assert config.mode.auto_run_mode is False
-        assert config.mode.confirm_changes is True

@@ -19,19 +19,17 @@ class APIConfig(BaseModel):
 
 class UIConfig(BaseModel):
     """User interface configuration."""
-    show_ai_responses: bool = Field(default=True, description="Show AI chat responses")
+    show_ai_responses: bool = Field(default=True, description="Show AI chat responses and followup")
+    show_thinking: bool = Field(default=True, description="Show AI thinking dialogue (only relevant when show_ai_responses is true)")
     show_tool_outputs: bool = Field(default=True, description="Show tool execution outputs")
     show_diffs: bool = Field(default=True, description="Show diff previews")
-    show_ai_followup: bool = Field(default=True, description="Show AI follow-up after tool execution")
-    show_thinking: bool = Field(default=True, description="Show AI thinking dialogue")
+    render_markdown: bool = Field(default=True, description="Render Markdown formatting in AI responses")
     theme: str = Field(default="default", description="UI theme")
     max_output_lines: int = Field(default=100, description="Maximum lines to show in output")
 
 class ModeConfig(BaseModel):
     """Mode configuration."""
-    auto_run_mode: bool = Field(default=True, description="Execute tools immediately")
-    dry_run_mode: bool = Field(default=False, description="Show changes without applying")
-    confirm_changes: bool = Field(default=False, description="Confirm before applying changes")
+    auto_run_mode: bool = Field(default=True, description="Execute tools immediately without confirmation")
 
 class Config(BaseModel):
     """Main configuration class."""
@@ -133,11 +131,7 @@ class Config(BaseModel):
         self.save()
         return self.mode.auto_run_mode
     
-    def toggle_dry_run_mode(self) -> bool:
-        """Toggle dry-run mode."""
-        self.mode.dry_run_mode = not self.mode.dry_run_mode
-        self.save()
-        return self.mode.dry_run_mode
+
     
     def toggle_ai_responses(self) -> bool:
         """Toggle AI response display."""

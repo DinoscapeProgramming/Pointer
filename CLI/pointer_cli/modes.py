@@ -15,7 +15,7 @@ class ModeManager:
     def __init__(self, config: Config, console: Console):
         self.config = config
         self.console = console
-        self.current_mode = "auto_run" if config.mode.auto_run_mode else "dry_run"
+        self.current_mode = "auto_run" if config.mode.auto_run_mode else "manual"
     
     def get_current_mode(self) -> str:
         """Get the current mode."""
@@ -25,37 +25,29 @@ class ModeManager:
         """Check if in auto-run mode."""
         return self.current_mode == "auto_run"
     
-    def is_dry_run_mode(self) -> bool:
-        """Check if in dry-run mode."""
-        return self.current_mode == "dry_run"
-    
     def toggle_mode(self) -> str:
-        """Toggle between auto-run and dry-run modes."""
+        """Toggle between auto-run and manual modes."""
         if self.current_mode == "auto_run":
-            self.current_mode = "dry_run"
-            self.config.mode.dry_run_mode = True
+            self.current_mode = "manual"
             self.config.mode.auto_run_mode = False
         else:
             self.current_mode = "auto_run"
             self.config.mode.auto_run_mode = True
-            self.config.mode.dry_run_mode = False
         
         self.config.save()
         return self.current_mode
     
     def set_mode(self, mode: str) -> bool:
         """Set a specific mode."""
-        if mode not in ["auto_run", "dry_run"]:
+        if mode not in ["auto_run", "manual"]:
             return False
         
         self.current_mode = mode
         
         if mode == "auto_run":
             self.config.mode.auto_run_mode = True
-            self.config.mode.dry_run_mode = False
         else:
             self.config.mode.auto_run_mode = False
-            self.config.mode.dry_run_mode = True
         
         self.config.save()
         return True
@@ -65,17 +57,15 @@ class ModeManager:
         if self.is_auto_run_mode():
             return True
         
-        if self.is_dry_run_mode():
-            return False
-        
-        return True
+        # In manual mode, tools require user confirmation
+        return False
     
     def get_mode_description(self) -> str:
         """Get description of current mode."""
         if self.is_auto_run_mode():
             return "Auto-Run Mode: Tools are executed immediately"
         else:
-            return "Dry-Run Mode: Tools show previews without executing"
+            return "Manual Mode: Tools require user confirmation before execution"
     
     def show_mode_status(self) -> None:
         """Show current mode status."""
@@ -86,13 +76,11 @@ class ModeManager:
             mode_text.append("Auto-Run", style="bold green")
             mode_text.append("\n\nTools will be executed immediately when requested.")
         else:
-            mode_text.append("Dry-Run", style="bold yellow")
-            mode_text.append("\n\nTools will show previews without executing.")
+            mode_text.append("Manual", style="bold yellow")
+            mode_text.append("\n\nTools require user confirmation before execution.")
         
         mode_text.append(f"\n\nMode Settings:")
         mode_text.append(f"\n  Auto-Run: {self.config.mode.auto_run_mode}")
-        mode_text.append(f"\n  Dry-Run: {self.config.mode.dry_run_mode}")
-        mode_text.append(f"\n  Confirm Changes: {self.config.mode.confirm_changes}")
         
         self.console.print(Panel(mode_text, title="Mode Status", border_style="blue"))
     
@@ -101,60 +89,14 @@ class ModeManager:
         if self.is_auto_run_mode():
             return f"Would execute {tool_name} with args: {tool_args}"
         
-        # Generate detailed preview based on tool type
-        if tool_name == "read_file":
-            path = tool_args.get("path", "")
-            return f"Would read file: {path}"
-        
-        elif tool_name == "write_file":
-            path = tool_args.get("path", "")
-            content = tool_args.get("content", "")
-            lines = len(content.split('\n')) if content else 0
-            return f"Would write {lines} lines to: {path}"
-        
-        elif tool_name == "edit_file":
-            path = tool_args.get("path", "")
-            changes = tool_args.get("changes", [])
-            return f"Would apply {len(changes)} changes to: {path}"
-        
-        elif tool_name == "run_command":
-            command = tool_args.get("command", "")
-            return f"Would execute command: {command}"
-        
-        elif tool_name == "delete_file":
-            path = tool_args.get("path", "")
-            return f"Would delete: {path}"
-        
-        elif tool_name == "create_directory":
-            path = tool_args.get("path", "")
-            return f"Would create directory: {path}"
-        
-        elif tool_name == "move_file":
-            source = tool_args.get("source", "")
-            destination = tool_args.get("destination", "")
-            return f"Would move {source} to {destination}"
-        
-        elif tool_name == "copy_file":
-            source = tool_args.get("source", "")
-            destination = tool_args.get("destination", "")
-            return f"Would copy {source} to {destination}"
-        
-        else:
-            return f"Would execute {tool_name} with args: {tool_args}"
+        # In manual mode, show what would be executed
+        return f"Would execute {tool_name} with args: {tool_args}"
     
     def confirm_destructive_action(self, action: str) -> bool:
         """Ask for confirmation for destructive actions."""
-        if not self.config.mode.confirm_changes:
-            return True
-        
-        # List of destructive actions
-        destructive_actions = [
-            "delete_file", "delete_directory", "remove_file", "remove_directory",
-            "move_file", "rename_file", "overwrite_file"
-        ]
-        
-        if any(destructive in action.lower() for destructive in destructive_actions):
-            response = input(f"⚠️  Destructive action detected: {action}\nProceed? (y/N): ")
+        # In manual mode, always ask for confirmation
+        if not self.config.mode.auto_run_mode:
+            response = input(f"⚠️  Action detected: {action}\nProceed? (y/N): ")
             return response.lower() in ['y', 'yes']
         
         return True
@@ -169,8 +111,8 @@ class ModeManager:
         help_text.append("  - Changes are applied directly\n")
         help_text.append("  - Best for experienced users\n\n")
         
-        help_text.append("Dry-Run Mode:\n", style="bold yellow")
-        help_text.append("  - Tools show previews without executing\n")
+        help_text.append("Manual Mode:\n", style="bold yellow")
+        help_text.append("  - Tools require user confirmation before execution\n")
         help_text.append("  - Safe for experimentation\n")
         help_text.append("  - Good for learning and testing\n\n")
         

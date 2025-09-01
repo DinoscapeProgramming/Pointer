@@ -3,6 +3,7 @@ setup.py
 pointer_cli/__init__.py
 pointer_cli/__main__.py
 pointer_cli/chat.py
+pointer_cli/chat_manager.py
 pointer_cli/config.py
 pointer_cli/core.py
 pointer_cli/editor.py

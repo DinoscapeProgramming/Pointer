@@ -66,7 +66,13 @@ class ToolManager:
     
     def _read_file(self, args: Dict[str, Any]) -> str:
         """Read file contents."""
-        file_path = Path(args.get("path", ""))
+        # Clean the file path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        file_path = Path(raw_path)
         
         if not file_path.exists():
             return f"File not found: {file_path}"
@@ -91,7 +97,13 @@ class ToolManager:
     
     def _write_file(self, args: Dict[str, Any]) -> str:
         """Write content to file."""
-        file_path = Path(args.get("path", ""))
+        # Clean the file path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        file_path = Path(raw_path)
         content = args.get("content", "")
         
         if not file_path:
@@ -113,7 +125,13 @@ class ToolManager:
     
     def _edit_file(self, args: Dict[str, Any]) -> str:
         """Edit file with specific changes."""
-        file_path = Path(args.get("path", ""))
+        # Clean the file path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        file_path = Path(raw_path)
         changes = args.get("changes", [])
         
         if not file_path:
@@ -340,7 +358,8 @@ class ToolManager:
     
     def _list_directory(self, args: Dict[str, Any]) -> str:
         """List directory contents."""
-        directory = args.get("directory", ".")
+        # Support both 'directory' and 'path' for backward compatibility
+        directory = args.get("directory", args.get("path", "."))
         show_hidden = args.get("show_hidden", False)
         
         dir_path = Path(directory)
@@ -372,7 +391,13 @@ class ToolManager:
     
     def _get_file_info(self, args: Dict[str, Any]) -> str:
         """Get detailed file information."""
-        file_path = Path(args.get("path", ""))
+        # Clean the file path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        file_path = Path(raw_path)
         
         if not file_path.exists():
             return f"File not found: {file_path}"
@@ -399,7 +424,13 @@ class ToolManager:
     
     def _delete_file(self, args: Dict[str, Any]) -> str:
         """Delete a file or directory."""
-        file_path = Path(args.get("path", ""))
+        # Clean the file path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        file_path = Path(raw_path)
         
         if not file_path.exists():
             return f"File not found: {file_path}"
@@ -418,7 +449,13 @@ class ToolManager:
     
     def _create_directory(self, args: Dict[str, Any]) -> str:
         """Create a directory."""
-        dir_path = Path(args.get("path", ""))
+        # Clean the directory path by stripping quotes and whitespace
+        # Support both 'path' and 'file_path' for backward compatibility
+        raw_path = args.get("path", args.get("file_path", ""))
+        if isinstance(raw_path, str):
+            raw_path = raw_path.strip().strip('"').strip("'")
+        
+        dir_path = Path(raw_path)
         
         if not dir_path:
             return "Error: No directory path provided"
@@ -431,8 +468,17 @@ class ToolManager:
     
     def _move_file(self, args: Dict[str, Any]) -> str:
         """Move or rename a file."""
-        source = Path(args.get("source", ""))
-        destination = Path(args.get("destination", ""))
+        # Clean the paths by stripping quotes and whitespace
+        raw_source = args.get("source", "")
+        raw_destination = args.get("destination", "")
+        
+        if isinstance(raw_source, str):
+            raw_source = raw_source.strip().strip('"').strip("'")
+        if isinstance(raw_destination, str):
+            raw_destination = raw_destination.strip().strip('"').strip("'")
+        
+        source = Path(raw_source)
+        destination = Path(raw_destination)
         
         if not source or not destination:
             return "Error: Both source and destination paths required"
@@ -448,8 +494,17 @@ class ToolManager:
     
     def _copy_file(self, args: Dict[str, Any]) -> str:
         """Copy a file."""
-        source = Path(args.get("source", ""))
-        destination = Path(args.get("destination", ""))
+        # Clean the paths by stripping quotes and whitespace
+        raw_source = args.get("source", "")
+        raw_destination = args.get("destination", "")
+        
+        if isinstance(raw_source, str):
+            raw_source = raw_source.strip().strip('"').strip("'")
+        if isinstance(raw_destination, str):
+            raw_destination = raw_destination.strip().strip('"').strip("'")
+        
+        source = Path(raw_source)
+        destination = Path(raw_destination)
         
         if not source or not destination:
             return "Error: Both source and destination paths required"

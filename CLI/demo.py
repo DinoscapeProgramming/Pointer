@@ -141,7 +141,7 @@ def demo_config():
     console = Console()
     console.print(Panel.fit("Pointer CLI Configuration Demo", title="Demo", border_style="yellow"))
     
-    # Create and configure
+    # Create and configure (without saving to file)
     config = Config()
     
     console.print(f"\n[bold]Default configuration:[/bold]")
@@ -150,27 +150,19 @@ def demo_config():
     console.print(f"Auto-Run Mode: {config.mode.auto_run_mode}")
     console.print(f"Show AI Responses: {config.ui.show_ai_responses}")
     
-    # Initialize with custom settings
-    config.initialize(
-        api_base_url="http://localhost:9000",
-        model_name="gpt-oss-20b",
-        auto_run_mode=False,
-        show_ai_responses=False
-    )
+    # Show what initialization would do (without actually doing it)
+    console.print(f"\n[bold]Example initialization (not applied):[/bold]")
+    console.print(f"API Base URL: http://localhost:1234")
+    console.print(f"Model: gpt-oss-20b")
+    console.print(f"Auto-Run Mode: False")
+    console.print(f"Show AI Responses: False")
     
-    console.print(f"\n[bold]After initialization:[/bold]")
-    console.print(f"API Base URL: {config.api.base_url}")
-    console.print(f"Model: {config.api.model_name}")
-    console.print(f"Auto-Run Mode: {config.mode.auto_run_mode}")
-    console.print(f"Show AI Responses: {config.ui.show_ai_responses}")
+    # Show what toggling would do (without actually doing it)
+    console.print(f"\n[bold]Example toggling (not applied):[/bold]")
+    console.print(f"Auto-Run Mode: {not config.mode.auto_run_mode}")
+    console.print(f"Show AI Responses: {not config.ui.show_ai_responses}")
     
-    # Toggle settings
-    console.print(f"\n[bold]Toggling settings:[/bold]")
-    new_mode = config.toggle_auto_run_mode()
-    console.print(f"Auto-Run Mode: {new_mode}")
-    
-    new_setting = config.toggle_ai_responses()
-    console.print(f"Show AI Responses: {new_setting}")
+    console.print(f"\n[dim]Note: Demo shows examples without modifying your actual configuration[/dim]")
 
 def main():
     """Run all demos."""
