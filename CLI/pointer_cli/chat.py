@@ -134,7 +134,6 @@ class ChatInterface:
             "model": self.config.api.model_name,
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 2000,
             "stream": True
         }
     
