@@ -5,7 +5,7 @@ Configuration management for Pointer CLI.
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,16 @@ class UIConfig(BaseModel):
     theme: str = Field(default="default", description="UI theme")
     max_output_lines: int = Field(default=100, description="Maximum lines to show in output")
 
+class CodebaseConfig(BaseModel):
+    """Codebase context configuration."""
+    include_context: bool = Field(default=True, description="Include codebase context in AI prompts")
+    max_context_files: int = Field(default=20, description="Maximum number of files to include in context")
+    context_file_types: List[str] = Field(default=[".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".md", ".txt", ".json", ".yaml", ".yml"], description="File types to include in context")
+    exclude_patterns: List[str] = Field(default=["__pycache__", "node_modules", ".git", ".venv", "venv", "env", ".env", "*.pyc", "*.pyo"], description="Patterns to exclude from context")
+    context_depth: int = Field(default=3, description="Maximum directory depth to scan for context")
+    auto_refresh_context: bool = Field(default=False, description="Automatically refresh context on startup")
+    context_cache_duration: int = Field(default=3600, description="Context cache duration in seconds")
+
 class ModeConfig(BaseModel):
     """Mode configuration."""
     auto_run_mode: bool = Field(default=True, description="Execute tools immediately without confirmation")
@@ -36,6 +46,7 @@ class Config(BaseModel):
     api: APIConfig = Field(default_factory=APIConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     mode: ModeConfig = Field(default_factory=ModeConfig)
+    codebase: CodebaseConfig = Field(default_factory=CodebaseConfig)
     initialized: bool = Field(default=False, description="Whether config is initialized")
     
     model_config = {

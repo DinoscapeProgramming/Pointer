@@ -138,7 +138,32 @@ class ToolManager:
             return "Error: No file path provided"
         
         if not changes:
-            return "Error: No changes provided"
+            # Check if changes are provided in a different format
+            if "insert_after" in args or "insert_before" in args or "content" in args:
+                # Convert to the expected format
+                changes = []
+                if "insert_after" in args and "content" in args:
+                    changes.append({
+                        "type": "insert_after",
+                        "after_text": args["insert_after"],
+                        "content": args["content"]
+                    })
+                elif "insert_before" in args and "content" in args:
+                    changes.append({
+                        "type": "insert_before",
+                        "before_text": args["insert_before"],
+                        "content": args["content"]
+                    })
+                elif "content" in args:
+                    # If only content is provided, treat as replacement
+                    changes.append({
+                        "type": "replace_text",
+                        "old_text": "",
+                        "new_text": args["content"]
+                    })
+            
+            if not changes:
+                return "Error: No changes provided"
         
         # Read current content
         current_content = safe_read_file(file_path)
@@ -146,52 +171,133 @@ class ToolManager:
             return f"Could not read file: {file_path}"
         
         # Apply changes
-        new_content = self._apply_changes(current_content, changes)
+        try:
+            new_content = self._apply_changes(current_content, changes)
+        except ValueError as e:
+            # Handle specific errors like text not found
+            error_msg = str(e)
+            if "not found" in error_msg:
+                # Extract the search text from the error message
+                search_text = ""
+                for change in changes:
+                    if change.get("type") == "insert_after":
+                        search_text = change.get("after_text", "")
+                        break
+                    elif change.get("type") == "insert_before":
+                        search_text = change.get("before_text", "")
+                        break
+                
+                # Find similar text in the file
+                similar_text = self._find_similar_text(current_content, search_text)
+                
+                # Provide helpful suggestions
+                suggestions = "\n\nSuggestions:\n"
+                suggestions += "- Check the exact text you're trying to insert after/before\n"
+                suggestions += "- Use search_content tool to find similar text in the file\n"
+                suggestions += "- Consider using write_file tool to replace the entire file content\n"
+                suggestions += "- Check for extra spaces, quotes, or special characters\n"
+                
+                if similar_text:
+                    suggestions += "\nSimilar text found in the file:\n"
+                    for suggestion in similar_text:
+                        suggestions += f"  {suggestion}\n"
+                
+                return f"Error editing {file_path}: {error_msg}{suggestions}"
+            else:
+                return f"Error editing {file_path}: {error_msg}"
+        except Exception as e:
+            return f"Error applying changes to {file_path}: {e}"
         
-        # Show diff
+        # Write new content first
+        success = safe_write_file(file_path, new_content)
+        if not success:
+            return f"Failed to update file: {file_path}"
+        
+        # Show diff if enabled
         if self.config.ui.show_diffs:
             diff = create_diff(current_content, new_content)
             if diff:
                 return f"Changes to {file_path}:\n{diff}\n\nFile updated successfully."
         
-        # Write new content
-        success = safe_write_file(file_path, new_content)
-        if success:
-            return f"File updated successfully: {file_path}"
-        else:
-            return f"Failed to update file: {file_path}"
+        return f"File updated successfully: {file_path}"
     
     def _apply_changes(self, content: str, changes: List[Dict[str, Any]]) -> str:
         """Apply changes to content."""
-        lines = content.split('\n')
+        # Start with the original content
+        result_content = content
         
         for change in changes:
             change_type = change.get("type", "")
             
             if change_type == "replace_line":
+                lines = result_content.split('\n')
                 line_num = change.get("line", 1) - 1  # Convert to 0-based
                 new_text = change.get("text", "")
                 if 0 <= line_num < len(lines):
                     lines[line_num] = new_text
+                result_content = '\n'.join(lines)
             
             elif change_type == "insert_line":
+                lines = result_content.split('\n')
                 line_num = change.get("line", 1) - 1
                 new_text = change.get("text", "")
                 if 0 <= line_num <= len(lines):
                     lines.insert(line_num, new_text)
+                result_content = '\n'.join(lines)
             
             elif change_type == "delete_line":
+                lines = result_content.split('\n')
                 line_num = change.get("line", 1) - 1
                 if 0 <= line_num < len(lines):
                     lines.pop(line_num)
+                result_content = '\n'.join(lines)
             
             elif change_type == "replace_text":
                 old_text = change.get("old_text", "")
                 new_text = change.get("new_text", "")
-                content = content.replace(old_text, new_text)
-                lines = content.split('\n')
+                result_content = result_content.replace(old_text, new_text)
+            
+            elif change_type == "insert_after":
+                # Insert content after a specific text
+                after_text = change.get("after_text", "")
+                new_content = change.get("content", "")
+                if after_text in result_content:
+                    result_content = result_content.replace(after_text, after_text + "\n" + new_content)
+                else:
+                    # Text not found - provide helpful error
+                    raise ValueError(f"Text to insert after not found: '{after_text}'. The file does not contain this text.")
+            
+            elif change_type == "insert_before":
+                # Insert content before a specific text
+                before_text = change.get("before_text", "")
+                new_content = change.get("content", "")
+                if before_text in result_content:
+                    result_content = result_content.replace(before_text, new_content + "\n" + before_text)
+                else:
+                    # Text not found - provide helpful error
+                    raise ValueError(f"Text to insert before not found: '{before_text}'. The file does not contain this text.")
         
-        return '\n'.join(lines)
+        return result_content
+    
+    def _find_similar_text(self, content: str, search_text: str, max_suggestions: int = 3) -> List[str]:
+        """Find similar text in content to help with insert_after/insert_before operations."""
+        suggestions = []
+        lines = content.split('\n')
+        
+        # Look for lines containing parts of the search text
+        search_words = search_text.lower().split()
+        
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            # Count how many words from search text appear in this line
+            matches = sum(1 for word in search_words if word in line_lower)
+            if matches > 0 and len(search_words) > 1:
+                # Show line number and content
+                suggestions.append(f"Line {i+1}: {line.strip()}")
+                if len(suggestions) >= max_suggestions:
+                    break
+        
+        return suggestions
     
     def _search_files(self, args: Dict[str, Any]) -> str:
         """Search for files by pattern."""

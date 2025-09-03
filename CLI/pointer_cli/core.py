@@ -171,6 +171,8 @@ class PointerCLI:
             new_mode = self.config.toggle_auto_run_mode()
             mode_text = "Auto-Run" if new_mode else "Manual"
             self.console.print(f"[green]Mode changed to: {mode_text}[/green]")
+        elif cmd == "context":
+            await self._handle_context_command(args)
         else:
             self.console.print(f"[yellow]Unknown command: {cmd}[/yellow]")
             self.console.print("Type /help for available commands.")
@@ -667,6 +669,9 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
         help_text.append("/chats", style="bold blue")
         help_text.append(" - Chat management (new, load, save, list, delete, current)\n")
         
+        help_text.append("/context", style="bold blue")
+        help_text.append(" - Codebase context management (refresh, enable, disable, show, search, config)\n")
+        
         help_text.append("/clear", style="bold blue")
         help_text.append(" - Clear the screen\n")
         
@@ -713,7 +718,13 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
         config_text.append(f"  AI Follow-up: Always enabled after tool execution\n\n")
         
         config_text.append("Mode Settings:\n", style="bold blue")
-        config_text.append(f"  Auto-Run Mode: {self.config.mode.auto_run_mode}\n")
+        config_text.append(f"  Auto-Run Mode: {self.config.mode.auto_run_mode}\n\n")
+        
+        config_text.append("Codebase Context:\n", style="bold blue")
+        config_text.append(f"  Include Context: {self.config.codebase.include_context}\n")
+        config_text.append(f"  Max Context Files: {self.config.codebase.max_context_files}\n")
+        config_text.append(f"  Context Depth: {self.config.codebase.context_depth}\n")
+        config_text.append(f"  Auto Refresh: {self.config.codebase.auto_refresh_context}\n")
         
         self.console.print(Panel(config_text, title="Configuration", border_style="yellow"))
     
@@ -729,6 +740,82 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
         status_text.append(f"Running: {self.running}\n")
         
         self.console.print(Panel(status_text, title="Status", border_style="cyan"))
+    
+    async def _handle_context_command(self, args: List[str]) -> None:
+        """Handle context management commands."""
+        if not args:
+            # Show context summary
+            summary = self.chat_interface.codebase_context.get_context_summary()
+            if summary:
+                self.console.print(Panel.fit(
+                    f"[bold]Codebase Context Summary[/bold]\n\n"
+                    f"Project Root: {summary.get('project_root', 'None')}\n"
+                    f"Total Files: {summary.get('total_files', 0)}\n"
+                    f"File Types: {', '.join(f'{ext}({count})' for ext, count in summary.get('file_types', {}).items())}\n"
+                    f"Last Updated: {summary.get('last_updated', 'Never')}\n"
+                    f"Enabled: {self.config.codebase.include_context}",
+                    title="Context Status"
+                ))
+            else:
+                self.console.print("[yellow]No codebase context available.[/yellow]")
+            return
+        
+        subcommand = args[0].lower()
+        
+        if subcommand == "refresh":
+            self.console.print("[blue]Refreshing codebase context...[/blue]")
+            self.chat_interface.codebase_context.force_refresh()
+            summary = self.chat_interface.codebase_context.get_context_summary()
+            self.console.print(f"[green]Context refreshed! Found {summary.get('total_files', 0)} files.[/green]")
+        
+        elif subcommand == "enable":
+            self.config.codebase.include_context = True
+            self.config.save()
+            self.console.print("[green]Codebase context enabled.[/green]")
+        
+        elif subcommand == "disable":
+            self.config.codebase.include_context = False
+            self.config.save()
+            self.console.print("[yellow]Codebase context disabled.[/yellow]")
+        
+        elif subcommand == "show":
+            context_str = self.chat_interface.codebase_context.get_context_for_prompt()
+            if context_str:
+                self.console.print(Panel(context_str, title="Codebase Context", border_style="blue"))
+            else:
+                self.console.print("[yellow]No codebase context available.[/yellow]")
+        
+        elif subcommand == "search":
+            if len(args) < 2:
+                self.console.print("[red]Usage: /context search <query>[/red]")
+                return
+            
+            query = " ".join(args[1:])
+            results = self.chat_interface.codebase_context.search_context(query)
+            
+            if results:
+                self.console.print(f"[green]Found {len(results)} files matching '{query}':[/green]")
+                for file_info in results[:10]:  # Show top 10 results
+                    self.console.print(f"  {file_info.relative_path}")
+            else:
+                self.console.print(f"[yellow]No files found matching '{query}'.[/yellow]")
+        
+        elif subcommand == "config":
+            config_text = (
+                f"[bold]Codebase Context Configuration[/bold]\n\n"
+                f"Include Context: {self.config.codebase.include_context}\n"
+                f"Max Context Files: {self.config.codebase.max_context_files}\n"
+                f"Context Depth: {self.config.codebase.context_depth}\n"
+                f"Auto Refresh: {self.config.codebase.auto_refresh_context}\n"
+                f"Cache Duration: {self.config.codebase.context_cache_duration}s\n"
+                f"File Types: {', '.join(self.config.codebase.context_file_types)}\n"
+                f"Exclude Patterns: {', '.join(self.config.codebase.exclude_patterns)}"
+            )
+            self.console.print(Panel(config_text, title="Context Configuration"))
+        
+        else:
+            self.console.print(f"[red]Unknown context subcommand: {subcommand}[/red]")
+            self.console.print("Available subcommands: refresh, enable, disable, show, search, config")
     
     def _handle_exit(self) -> None:
         """Handle exit gracefully."""

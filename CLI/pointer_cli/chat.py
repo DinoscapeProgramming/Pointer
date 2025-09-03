@@ -19,6 +19,7 @@ from rich.panel import Panel
 
 from .config import Config
 from .utils import truncate_output
+from .codebase_context import CodebaseContext
 
 class ChatInterface:
     """Chat interface for natural language interaction."""
@@ -28,6 +29,7 @@ class ChatInterface:
         self.console = console
         self.session = None
         self.conversation_history = []
+        self.codebase_context = CodebaseContext(config)
         
     async def get_user_input(self) -> str:
         """Get user input from the terminal."""
@@ -133,7 +135,7 @@ class ChatInterface:
         return {
             "model": self.config.api.model_name,
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": 2,
             "stream": True
         }
     
@@ -148,10 +150,20 @@ class ChatInterface:
             f"- Current Directory: {context.get('current_directory', 'None')}",
             f"- Git Repository: {context.get('is_git_repo', False)}",
             "",
+        ]
+        
+        # Add codebase context if enabled
+        if self.config.codebase.include_context:
+            codebase_context = self.codebase_context.get_context_for_prompt()
+            if codebase_context and codebase_context != "No codebase context available.":
+                prompt_parts.append(codebase_context)
+                prompt_parts.append("")
+        
+        prompt_parts.extend([
             "Available Tools:",
             "- read_file: Read file contents (args: path)",
             "- write_file: Write content to file (args: path, content)",
-            "- edit_file: Edit file with specific changes (args: path, changes)",
+            "- edit_file: Edit file with specific changes (args: path, changes, insert_after, insert_before, content)",
             "- search_files: Search for files by pattern (args: pattern, directory, recursive, include_hidden)",
             "- search_content: Search for content in files (args: query, directory, recursive, include_hidden)",
             "- run_command: Execute shell commands (args: command, cwd)",
@@ -180,6 +192,13 @@ class ChatInterface:
             "  path: C:\\path\\to\\file.txt",
             "  content: Hello, World!",
             "```",
+            "```tool",
+            "name: edit_file",
+            "args:",
+            "  path: C:\\path\\to\\file.txt",
+            "  insert_after: \"<div class=\\\"languages-grid\\\">\"",
+            "  content: \"<div class=\\\"language-card\\\">New content here</div>\"",
+            "```",
             "",
             "Guidelines:",
             "- Be concise and helpful",
@@ -187,7 +206,8 @@ class ChatInterface:
             "- Explain what you're doing",
             "- Ask for confirmation for destructive operations",
             "- Use the most appropriate tool for each task",
-        ]
+            "- Use the codebase context to understand the project structure and key files",
+        ])
         
         return "\n".join(prompt_parts)
     
@@ -533,13 +553,16 @@ class ChatInterface:
         """Parse a single tool block."""
         lines = block.strip().split('\n')
         tool_data = {}
+        current_key = None
+        current_value = []
+        in_multiline_block = False
         
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             
-            if ':' in line:
+            if ':' in line and not in_multiline_block:
                 key, value = line.split(':', 1)
                 key = key.strip()
                 value = value.strip()
@@ -550,10 +573,37 @@ class ChatInterface:
                     # Parse YAML-like args
                     tool_data["args"] = self._parse_args(value)
                 else:
-                    # Add to args
-                    if "args" not in tool_data:
-                        tool_data["args"] = {}
-                    tool_data["args"][key] = value
+                    # Check if this is a multi-line value (YAML block scalar)
+                    if value == "|":
+                        # Start of multi-line block
+                        current_key = key
+                        current_value = []
+                        in_multiline_block = True
+                    else:
+                        # Single line value
+                        if "args" not in tool_data:
+                            tool_data["args"] = {}
+                        tool_data["args"][key] = value
+            elif in_multiline_block:
+                # We're in a multi-line block, collect lines
+                if line.startswith("```") or line.startswith("---"):
+                    # End of multi-line block
+                    if current_key and current_value:
+                        if "args" not in tool_data:
+                            tool_data["args"] = {}
+                        tool_data["args"][current_key] = "\n".join(current_value).strip()
+                    current_key = None
+                    current_value = []
+                    in_multiline_block = False
+                else:
+                    # Add line to current multi-line value
+                    current_value.append(line)
+        
+        # Handle case where multi-line block ends at end of tool block
+        if in_multiline_block and current_key and current_value:
+            if "args" not in tool_data:
+                tool_data["args"] = {}
+            tool_data["args"][current_key] = "\n".join(current_value).strip()
         
         # Fix common parameter mismatches
         if tool_data.get("name") == "search_content" and "args" in tool_data:
