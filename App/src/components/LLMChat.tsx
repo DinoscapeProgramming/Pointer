@@ -5377,7 +5377,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setIsInToolExecutionChain(false);
         addMessage({
           role: 'assistant',
-          content: "I apologize, but I'm having trouble continuing our conversation. Let me try to answer based on what I know already."
+          content: "I apologize, but I'm having trouble continuing our conversation. (30 second timeout reached)"
         });
       }, 30000); // 30 seconds timeout
       
@@ -5899,15 +5899,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         // Fallback: try to extract tool name from content if still unknown
         if (toolName === "Tool") {
           if (typeof message.content === 'string') {
-            // Look for common tool patterns in the content
             const toolPatterns = [
               /read_file/i,
               /list_directory/i,
               /web_search/i,
               /get_codebase_overview/i,
               /search_codebase/i,
-              /edit_file/i,
-              /create_file/i,
               /delete_file/i
             ];
             
