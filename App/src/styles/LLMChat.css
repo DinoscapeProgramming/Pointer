@@ -416,7 +416,6 @@
 .message.tool {
   width: 100%;
   box-sizing: border-box;
-  margin-bottom: 8px;
   overflow: hidden;
 }
 
@@ -701,13 +700,18 @@
   transition: all 0.2s ease;
 }
 
-.add-file-button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+/* Tool Result Collapsible Styles */
+.tool-header {
+  /* No hover animations */
 }
 
-.add-file-button:active {
-  transform: scale(0.95);
+.tool-header-content {
+  flex: 1;
+}
+
+.tool-content-collapsible {
+  overflow: hidden;
+  transition: all 0.3s ease;
 }
 
 /* Message Attachments Styles */

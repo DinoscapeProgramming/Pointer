@@ -2554,6 +2554,42 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isInToolExecutionChain, setIsInToolExecutionChain] = useState<boolean>(false);
   
+  // Add state for tracking collapsed tool results - default to all collapsed
+  const [collapsedToolResults, setCollapsedToolResults] = useState<Set<string>>(new Set());
+  
+  // Function to toggle tool result collapsed state
+  const toggleToolResultCollapsed = (messageId: string) => {
+    setCollapsedToolResults(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      // Save collapsed state to localStorage for persistence
+      localStorage.setItem('collapsedToolResults', JSON.stringify(Array.from(newSet)));
+      return newSet;
+    });
+  };
+  
+  // Load collapsed state from localStorage on component mount, default to all collapsed
+  useEffect(() => {
+    const savedCollapsed = localStorage.getItem('collapsedToolResults');
+    if (savedCollapsed) {
+      try {
+        const collapsedArray = JSON.parse(savedCollapsed);
+        setCollapsedToolResults(new Set(collapsedArray));
+      } catch (error) {
+        console.warn('Failed to load collapsed tool results state:', error);
+        // Default to all collapsed if loading fails
+        setCollapsedToolResults(new Set());
+      }
+    } else {
+      // Default to all collapsed for new users
+      setCollapsedToolResults(new Set());
+    }
+  }, []);
+  
   // Add a state variable to track thinking content
   const [thinking, setThinking] = useState<string>('');
   
@@ -5952,7 +5988,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             width: '100%',
             opacity: shouldBeFaded ? 0.5 : 1,
             transition: 'opacity 0.2s ease',
-            marginTop: '4px', // Reduced from default to minimize space after thoughts
           }}
         >
           <div
@@ -5973,7 +6008,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                    alignItems: 'center',
                    cursor: 'pointer',
                    padding: '0', // Removed padding for more compact look
-                 }}>
+                 }}
+                 onClick={() => toggleToolResultCollapsed(message.messageId || `tool_${index}`)}>
               <div className="tool-header-content"
                      style={{
                        display: 'flex',
@@ -5989,7 +6025,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                           alignItems: 'center',
                         }}>
                     {toolName && toolName === 'read_file' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 0 0 0 2-2V8z"></path>
                     <polyline points="14 2 14 8 20 8"></polyline>
                     <line x1="16" y1="13" x2="8" y2="13"></line>
                     <line x1="16" y1="17" x2="8" y2="17"></line>
@@ -6065,63 +6101,73 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                     })()}
                   </span>
               </div>
+              
+              {/* Collapse/Expand toggle button */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                cursor: 'pointer',
+                borderRadius: '4px',
+              }}>
+                {collapsedToolResults.has(message.messageId || `tool_${index}`) ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="9,18 15,12 9,6"></polyline>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="6,9 12,15 18,9"></polyline>
+                  </svg>
+                )}
+              </div>
             </div>
 
-            {!shortContent && (
-              <div style={{
-                padding: '2px 0',
-                color: 'var(--text-secondary)',
-                fontSize: '12px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                maxWidth: '100%',
-              }}>
-                {/* Empty div for spacing when no content to show */}
-            </div>
-          )}
-            
-            {toolArgs && (
-                <div style={{
-                  marginTop: '6px',
-                  padding: '6px',
-                  background: 'var(--bg-tertiary)',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  fontFamily: 'var(--font-mono)',
-                  whiteSpace: 'pre-wrap',
-                  overflowX: 'auto',
-                }}>
-                <div style={{
-                  marginBottom: '4px',
-                  fontWeight: 'bold',
-                  fontSize: '11px',
-                  color: 'var(--text-secondary)',
-                }}>Arguments Used:</div>
-                {toolArgs}
-        </div>
+            {/* Show content when expanded, nothing when collapsed */}
+            {!collapsedToolResults.has(message.messageId || `tool_${index}`) && (
+              <>
+                {/* Show tool arguments and results when expanded */}
+                {toolArgs && (
+                  <div style={{
+                    marginTop: '6px',
+                    padding: '6px',
+                    background: 'var(--bg-tertiary)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontFamily: 'var(--font-mono)',
+                    whiteSpace: 'pre-wrap',
+                    overflowX: 'auto',
+                  }}>
+                    <div style={{
+                      marginBottom: '4px',
+                      fontWeight: 'bold',
+                      fontSize: '11px',
+                      color: 'var(--text-secondary)',
+                    }}>Arguments Used:</div>
+                    {toolArgs}
+                  </div>
+                )}
+                
+                <>
+                  <div style={{
+                    marginTop: '6px',
+                    fontWeight: 'bold',
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                  }}>Result:</div>
+                  <pre style={{
+                    marginTop: '3px',
+                    padding: '6px',
+                    background: 'var(--bg-tertiary)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontFamily: 'var(--font-mono)',
+                    whiteSpace: 'pre-wrap',
+                    overflowX: 'auto',
+                  }}>
+                    {content}
+                  </pre>
+                </>
+              </>
             )}
-            
-            <>
-              <div style={{
-                marginTop: '6px',
-                fontWeight: 'bold',
-                fontSize: '11px',
-                color: 'var(--text-secondary)',
-              }}>Result:</div>
-              <pre style={{
-                marginTop: '3px',
-                padding: '6px',
-                background: 'var(--bg-tertiary)',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontFamily: 'var(--font-mono)',
-                whiteSpace: 'pre-wrap',
-                overflowX: 'auto',
-              }}>
-            {content}
-          </pre>
-            </>
           </div>
         </div>
       );
@@ -6416,6 +6462,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       delete (window as any).saveCurrentChat;
     };
   }, [currentChatId, messages, saveChat]);
+
+
 
   if (!isVisible) return null;
 
