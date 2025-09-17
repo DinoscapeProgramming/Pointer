@@ -48,7 +48,7 @@ A modern, AI-powered code editor built with Electron, React, TypeScript, and Pyt
 
 1. **Clone Repository**
    ```bash
-   git clone https://github.com/f1shyondrugs/Pointer.git
+   git clone https://github.com/PointerIDE/Pointer.git
    cd Pointer/App
    ```
 

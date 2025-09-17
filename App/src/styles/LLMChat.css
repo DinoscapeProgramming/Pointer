@@ -98,19 +98,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Tool Bundle Styles */
-.tool-bundle {
-  /* Clean, minimal styling without hover effects */
-}
 
-.tool-bundle-header-content {
-  flex: 1;
-}
-
-.tool-bundle-icon {
-  color: var(--accent-color);
-  opacity: 0.8;
-}
 
 /* Enhanced link styling for chat messages */
 .message-content a {
