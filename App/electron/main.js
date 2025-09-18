@@ -1,14 +1,14 @@
+if ((process.platform === 'win32') && process.argv.includes('--interactive')) require('windows-debugger')({
+  title: 'Pointer Debugger',
+  eval: (code) => eval(code)
+});
+
 const { app, BrowserWindow, dialog, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV !== 'production';
 const DiscordRPC = require('discord-rpc');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
-
-if (!app.isPackaged && (process.platform === 'win32') && process.argv.includes('--interactive')) require('windows-debugger')({
-  title: 'Pointer Debugger',
-  eval: (code) => eval(code)
-});
 
 // Get dev server port from environment variable or default to 3000
 const DEV_SERVER_PORT = process.env.VITE_DEV_SERVER_PORT || '3000';
