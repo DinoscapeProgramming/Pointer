@@ -507,3 +507,146 @@ export const generateSecureToolCallId = (): string => {
   
   return `${random}${timestamp}`;
 };
+
+// Legacy exports for backward compatibility
+export const generateValidToolCallId = generateSecureToolCallId;
+
+// Chat session interface
+export interface ChatSession {
+  id: string;
+  name: string;
+  messages: ExtendedMessage[];
+  createdAt: string;
+  lastModified: string;
+}
+
+// Dynamic system message generator based on settings
+export const generateSystemMessage = (promptsSettings: any): ExtendedMessage => {
+  const enabledPrompts: string[] = [];
+  
+  if (promptsSettings.enhancedSystemMessage) enabledPrompts.push('enhanced');
+  if (promptsSettings.conciseChatSystem) enabledPrompts.push('concise');
+  if (promptsSettings.advancedAgentSystem) enabledPrompts.push('agent');
+  if (promptsSettings.refreshKnowledgeSystem) enabledPrompts.push('refresh');
+  if (promptsSettings.coreTraits) enabledPrompts.push('traits');
+  if (promptsSettings.fileOperations) enabledPrompts.push('files');
+  if (promptsSettings.explorationProtocol) enabledPrompts.push('explore');
+  if (promptsSettings.enhancedCapabilities) enabledPrompts.push('capabilities');
+  if (promptsSettings.communicationExcellence) enabledPrompts.push('communication');
+  
+  // Add custom rules
+  const enabledRules = promptsSettings.customRules?.filter((rule: any) => rule.enabled) || [];
+  
+  let content = '';
+  
+  if (enabledPrompts.includes('enhanced')) {
+    content += ENHANCED_SYSTEM_MESSAGE.content + '\n\n';
+  }
+  
+  if (enabledPrompts.includes('concise')) {
+    content += CONCISE_CHAT_SYSTEM('') + '\n\n';
+  }
+  
+  if (enabledPrompts.includes('agent')) {
+    content += ADVANCED_AGENT_SYSTEM() + '\n\n';
+  }
+  
+  if (enabledPrompts.includes('refresh')) {
+    content += REFRESH_KNOWLEDGE_SYSTEM.content + '\n\n';
+  }
+  
+  // Add custom rules
+  enabledRules.forEach((rule: any) => {
+    content += `# Custom Rule: ${rule.name}\n${rule.content}\n\n`;
+  });
+  
+  return {
+    role: 'system',
+    content: content.trim() || 'You are a helpful AI assistant.'
+  };
+};
+
+// Refresh knowledge prompt
+export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
+  role: 'system',
+  content: 'Please refresh your understanding of the current codebase and project context.'
+};
+
+// After tool call prompt
+export const AFTER_TOOL_CALL_PROMPT: ExtendedMessage = {
+  role: 'system',
+  content: 'Continue with the next steps based on the tool call results.'
+};
+
+// File extension utility
+export const getFileExtension = (language: string): string => {
+  return getIntelligentFileExtension(language);
+};
+
+// Default model configurations
+export const defaultModelConfigs = {
+  chat: {
+    temperature: 0.7,
+    maxTokens: 4000,
+    topP: 0.9,
+    frequencyPenalty: 0,
+    presencePenalty: 0
+  },
+  agent: {
+    temperature: 0.15,
+    maxTokens: 6000,
+    topP: 0.9,
+    frequencyPenalty: 0.2,
+    presencePenalty: 0.1
+  }
+};
+
+// System message generators
+export const getChatSystemMessage = (currentWorkingDirectory: string): string => {
+  return CONCISE_CHAT_SYSTEM(currentWorkingDirectory);
+};
+
+export const getAgentSystemMessage = (): string => {
+  return ADVANCED_AGENT_SYSTEM();
+};
+
+// Generate prompts utility
+export const generatePrompts = {
+  titleGeneration: (messages: ExtendedMessage[]): string => {
+    const context = messages
+      .filter(m => m.role === 'user')
+      .slice(-3)
+      .map(m => m.content?.slice(0, 100))
+      .join(' | ');
+    
+    return `Generate a concise, descriptive title (3-6 words) that captures the essence of this coding conversation:\n\nContext: ${context}\n\nTitle should be: Technical, specific, and actionable.\nExamples: "React Component Refactor", "API Integration Fix", "Database Schema Update"\n\nTitle:`;
+  },
+
+  codeMerging: (filename: string, originalContent: string, newContent: string, context?: string): string => {
+    const fileType = filename.split('.').pop()?.toLowerCase();
+    const isNewFile = !originalContent || originalContent.trim().length === 0;
+    
+    return `# 🔄 Intelligent Code Integration
+
+**Target**: ${filename} (${fileType?.toUpperCase()} file)
+**Operation**: ${isNewFile ? 'NEW FILE CREATION' : 'SMART MERGE OPERATION'}
+${context ? `**Context**: ${context}` : ''}
+
+## 📋 Current State
+${isNewFile ? '```\n[NEW FILE - NO EXISTING CONTENT]\n```' : `\`\`\`${fileType}\n${originalContent}\n\`\`\``}
+
+## 🆕 Proposed Changes  
+\`\`\`${fileType}
+${newContent}
+\`\`\`
+
+## 🎯 Integration Requirements
+${isNewFile ? 
+  '- Create new file with provided content\n- Ensure proper formatting and structure\n- Validate syntax and imports' : 
+  '- **Intelligent Merging**: Preserve existing functionality unless explicitly replaced\n- **Pattern Consistency**: Maintain existing code style and conventions\n- **Dependency Integrity**: Update imports and references as needed\n- **Conflict Resolution**: Handle overlapping changes intelligently\n- **Structure Preservation**: Keep logical code organization'
+}
+
+## 📤 Expected Output
+Return ONLY the final ${isNewFile ? 'file content' : 'merged code'} - no explanations, comments, or analysis. The result should be production-ready and properly formatted.`;
+  }
+};

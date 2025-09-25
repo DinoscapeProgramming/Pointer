@@ -1,11 +1,8 @@
 import { Message } from '../types';
+import { ChatSession, ExtendedMessage } from '../config/chatConfig';
 
-export interface ChatSession {
-  id: string;
-  name: string;
-  createdAt: string;
-  messages: Message[];
-}
+// Re-export ChatSession for backward compatibility
+export type { ChatSession };
 
 export class ChatService {
   private static API_URL = 'http://localhost:23816';
@@ -13,7 +10,7 @@ export class ChatService {
   /**
    * Generate a simple chat name from the first user message
    */
-  private static generateChatName(messages: Message[]): string {
+  private static generateChatName(messages: ExtendedMessage[]): string {
     const firstUserMessage = messages.find(m => m.role === 'user');
     if (firstUserMessage && typeof firstUserMessage.content === 'string') {
       const nameBase = firstUserMessage.content.trim().substring(0, 50);
@@ -25,7 +22,7 @@ export class ChatService {
   /**
    * Clean messages before saving - remove problematic content and ensure proper structure
    */
-  private static cleanMessagesForSaving(messages: Message[]): Message[] {
+  private static cleanMessagesForSaving(messages: ExtendedMessage[]): ExtendedMessage[] {
     return messages.map(msg => {
       // Create a clean copy of the message
       const cleanMsg: any = {
@@ -79,7 +76,7 @@ export class ChatService {
   /**
    * Save chat to the backend with clean, simple logic
    */
-  static async saveChat(chatId: string, messages: Message[]): Promise<boolean> {
+  static async saveChat(chatId: string, messages: ExtendedMessage[]): Promise<boolean> {
     try {
       if (messages.length <= 1) {
         console.log('Skipping save - not enough messages');
@@ -93,6 +90,7 @@ export class ChatService {
         id: chatId,
         name: this.generateChatName(messages),
         createdAt: new Date().toISOString(),
+        lastModified: new Date().toISOString(),
         messages: cleanMessages,
       };
 
@@ -157,6 +155,7 @@ export class ChatService {
         id: chat.id || chatId,
         name: chat.name || 'New Chat',
         createdAt: chat.createdAt || new Date().toISOString(),
+        lastModified: chat.lastModified || new Date().toISOString(),
         messages: cleanMessages
       };
     } catch (error) {

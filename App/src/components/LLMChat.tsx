@@ -16,7 +16,7 @@ import ToolService from '../services/ToolService';
 import LinkHoverCard from './LinkHoverCard';
 // Import configurations from the new chatConfig file
 import { 
-  INITIAL_SYSTEM_MESSAGE, 
+  generateSystemMessage,
   REFRESH_KNOWLEDGE_PROMPT,
   ExtendedMessage, 
   AttachedFile, 
@@ -2492,8 +2492,24 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Always use agent mode
   const mode: 'agent' = 'agent';
   
+  // Get current prompts settings and generate initial system message
+  const getCurrentPromptsSettings = () => {
+    try {
+      const settings = localStorage.getItem('appSettings');
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        return parsed.prompts || {};
+      }
+    } catch (error) {
+      console.warn('Failed to load prompts settings:', error);
+    }
+    return {};
+  };
+
+  const initialSystemMessage = generateSystemMessage(getCurrentPromptsSettings());
+  
   // Update the initial state and types to use ExtendedMessage
-  const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
+  const [messages, setMessages] = useState<ExtendedMessage[]>([initialSystemMessage]);
   const [currentMessageId, setCurrentMessageId] = useState<number>(1); // Track current message ID counter (not used for uuidv4)
   
   // Function to get the next message ID and increment the counter
@@ -2623,11 +2639,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         return generateEnhancedSystemMessage(codebaseContext);
       } else {
         console.log('No codebase context available, using default system message');
-        return INITIAL_SYSTEM_MESSAGE;
+        return generateSystemMessage(getCurrentPromptsSettings());
       }
     } catch (error) {
       console.warn('Failed to get codebase context:', error);
-      return INITIAL_SYSTEM_MESSAGE;
+      return generateSystemMessage(getCurrentPromptsSettings());
     }
   };
   
@@ -2941,7 +2957,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       } else {
         // Chat not found, create a new one
         console.log(`Chat ${chatId} not found, creating new chat`);
-        const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+        const systemMsg = generateSystemMessage(getCurrentPromptsSettings());
         setMessages([systemMsg]);
         saveChat(chatId, [systemMsg]);
       }
@@ -2954,7 +2970,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     } catch (error) {
       console.error('Error loading chat:', error);
       // Initialize with default system message on error
-      const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+      const systemMsg = generateSystemMessage(getCurrentPromptsSettings());
       setMessages([systemMsg]);
     } finally {
       setIsProcessing(false);
@@ -4261,10 +4277,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   useEffect(() => {
     const enhanceInitialSystemMessage = async () => {
       // Only enhance if we have the default system message (no chat loaded yet)
-      if (messages.length === 1 && messages[0].content === INITIAL_SYSTEM_MESSAGE.content) {
+      const currentSystemMessage = generateSystemMessage(getCurrentPromptsSettings());
+      if (messages.length === 1 && messages[0].content === currentSystemMessage.content) {
         try {
           const enhancedSystemMessage = await initializeEnhancedSystemMessage();
-          if (enhancedSystemMessage.content !== INITIAL_SYSTEM_MESSAGE.content) {
+          if (enhancedSystemMessage.content !== currentSystemMessage.content) {
             console.log('Enhancing initial system message with codebase context');
             setMessages([enhancedSystemMessage]);
           }

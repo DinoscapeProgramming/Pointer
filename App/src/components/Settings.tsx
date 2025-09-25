@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
-import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
+import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings, PromptsSettings, CustomRule } from '../types';
 import * as monaco from 'monaco-editor';
 import ColorInput from './ColorInput';
 import { presetThemes } from '../themes/presetThemes';
@@ -75,7 +75,6 @@ const defaultConfig: ModelConfig = {
   topP: 1,
   frequencyPenalty: 0,
   presencePenalty: 0,
-  systemPrompt: '',
   contextLength: 8192,
   stopSequences: [],
   modelProvider: 'local',
@@ -106,8 +105,22 @@ const defaultDiscordRpcSettings: DiscordRpcSettings = {
   button2Url: '',
 };
 
+const defaultPromptsSettings: PromptsSettings = {
+  enhancedSystemMessage: true,
+  conciseChatSystem: true,
+  advancedAgentSystem: true,
+  refreshKnowledgeSystem: true,
+  coreTraits: true,
+  fileOperations: true,
+  explorationProtocol: true,
+  enhancedCapabilities: true,
+  communicationExcellence: true,
+  customRules: [],
+};
+
 const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
+  { id: 'prompts', name: 'AI Prompts' },
   { id: 'theme', name: 'Theme & Editor' },
   { id: 'discord', name: 'Discord Rich Presence' },
   { id: 'github', name: 'GitHub' },
@@ -504,6 +517,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     ]
   });
   const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
+  const [promptsSettings, setPromptsSettings] = useState<PromptsSettings>({...defaultPromptsSettings});
+  const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
+  const [editingRule, setEditingRule] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState<Record<string, any>>({
     titleFormat: '{filename} - {workspace} - Pointer'
   });
@@ -712,6 +728,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             ...initialSettings.discordRpc
           }));
         }
+        if (result.settings.prompts) {
+          setPromptsSettings(prev => ({
+            ...prev,
+            ...result.settings.prompts
+          }));
+        }
         if (result.settings.advanced) {
           setAdvanced(prev => ({
             ...prev,
@@ -746,6 +768,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         editor: editorSettings,
         theme: themeSettings,
         discordRpc: discordRpcSettings,
+        prompts: promptsSettings,
         advanced: advanced
       };
       const result = await FileSystemService.saveSettingsFiles(settingsPath, settings);
@@ -927,12 +950,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
     }
     
-    // Auto-discover models when model systemPrompt changes (if no model ID is set)
-    if (field === 'systemPrompt' && value && 
-        (!modelConfigs[modelId]?.id || modelConfigs[modelId]?.id.trim() === '') &&
-        modelConfigs[modelId]?.apiEndpoint) {
-      fetchAvailableModels(modelConfigs[modelId].apiEndpoint, modelConfigs[modelId]?.apiKey);
-    }
     
     // Auto-discover models when model contextLength changes (if no model ID is set)
     if (field === 'contextLength' && value && 
@@ -994,6 +1011,65 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       return updated;
     });
     setHasUnsavedChanges(true);
+  };
+
+  const handlePromptsSettingChange = (field: keyof PromptsSettings, value: boolean) => {
+    setPromptsSettings((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleCustomRuleChange = (ruleId: string, field: keyof CustomRule, value: any) => {
+    setPromptsSettings((prev) => ({
+      ...prev,
+      customRules: prev.customRules.map(rule => 
+        rule.id === ruleId ? { ...rule, [field]: value } : rule
+      )
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const addCustomRule = () => {
+    const newRule: CustomRule = {
+      id: `rule_${Date.now()}`,
+      name: 'New Rule',
+      content: 'Enter your custom rule content here...',
+      enabled: true
+    };
+    setPromptsSettings((prev) => ({
+      ...prev,
+      customRules: [...prev.customRules, newRule]
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const deleteCustomRule = (ruleId: string) => {
+    setPromptsSettings((prev) => ({
+      ...prev,
+      customRules: prev.customRules.filter(rule => rule.id !== ruleId)
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleEditPrompt = (promptKey: string) => {
+    setEditingPrompt(promptKey);
+  };
+
+  const handleEditRule = (ruleId: string) => {
+    setEditingRule(ruleId);
+  };
+
+  const savePromptEdit = (promptKey: string, newContent: string) => {
+    // For now, we'll just close the editor
+    // In the future, this could save to a custom prompt content store
+    setEditingPrompt(null);
+  };
+
+  const saveRuleEdit = (ruleId: string, newContent: string) => {
+    handleCustomRuleChange(ruleId, 'content', newContent);
+    setEditingRule(null);
   };
 
   const handleAdvancedSettingChange = (field: string, value: any) => {
@@ -1688,10 +1764,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                       style={{
                                         padding: '8px 12px',
                                         cursor: 'pointer',
-                                        borderBottom: index < filteredModels.length - 1 ? '1px solid var(--border-primary)' : 'none',
-                                        ':hover': {
-                                          background: 'var(--bg-hover)'
-                                        }
+                                        borderBottom: index < filteredModels.length - 1 ? '1px solid var(--border-primary)' : 'none'
                                       }}
                                       onMouseEnter={(e) => {
                                         e.currentTarget.style.background = 'var(--bg-hover)';
@@ -1803,37 +1876,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           </div>
                         )}
 
-                        {/* System Prompt - Now more prominent */}
-                        <div>
-                          <label style={{ 
-                            display: 'block', 
-                            marginBottom: '4px', 
-                            fontSize: '14px',
-                            fontWeight: 'bold' 
-                          }}>
-                            System Prompt
-                          </label>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            Customize the instructions given to the model at the beginning of each conversation
-                          </p>
-                          <textarea
-                            value={modelConfigs[activeTab].systemPrompt || ''}
-                            onChange={(e) => handleModelConfigChange(activeTab, 'systemPrompt', e.target.value)}
-                            style={{
-                              width: '100%',
-                              height: '120px',
-                              padding: '8px',
-                              background: 'var(--bg-secondary)',
-                              border: '1px solid var(--border-primary)',
-                              borderRadius: '4px',
-                              color: 'var(--text-primary)',
-                              resize: 'vertical',
-                              fontFamily: 'monospace',
-                              fontSize: '13px',
-                            }}
-                            placeholder="Enter instructions for the model (e.g., 'You are a helpful AI assistant...')"
-                          />
-                        </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                           <div>
@@ -1868,6 +1910,610 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* AI Prompts Settings */}
+                {activeCategory === 'prompts' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>AI Prompts Configuration</h3>
+                    
+                    {/* Essential Prompts Section */}
+                    <div>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                        Essential Prompts
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {/* Enhanced System Message */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Enhanced System Message</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('enhancedSystemMessage')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.enhancedSystemMessage}
+                              onChange={(e) => handlePromptsSettingChange('enhancedSystemMessage', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Concise Chat System */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Concise Chat System</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('conciseChatSystem')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.conciseChatSystem}
+                              onChange={(e) => handlePromptsSettingChange('conciseChatSystem', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Advanced Agent System */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Advanced Agent System</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('advancedAgentSystem')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.advancedAgentSystem}
+                              onChange={(e) => handlePromptsSettingChange('advancedAgentSystem', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Refresh Knowledge System */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Refresh Knowledge System</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('refreshKnowledgeSystem')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.refreshKnowledgeSystem}
+                              onChange={(e) => handlePromptsSettingChange('refreshKnowledgeSystem', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Core Traits */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Core Traits</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('coreTraits')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.coreTraits}
+                              onChange={(e) => handlePromptsSettingChange('coreTraits', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* File Operations */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>File Operations</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('fileOperations')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.fileOperations}
+                              onChange={(e) => handlePromptsSettingChange('fileOperations', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Exploration Protocol */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Exploration Protocol</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('explorationProtocol')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.explorationProtocol}
+                              onChange={(e) => handlePromptsSettingChange('explorationProtocol', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Enhanced Capabilities */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Enhanced Capabilities</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('enhancedCapabilities')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.enhancedCapabilities}
+                              onChange={(e) => handlePromptsSettingChange('enhancedCapabilities', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Communication Excellence */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-primary)' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '500' }}>Communication Excellence</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditPrompt('communicationExcellence')}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                color: 'var(--text-secondary)', 
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                borderRadius: '3px'
+                              }}
+                              title="Edit prompt content"
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <input
+                              type="checkbox"
+                              checked={promptsSettings.communicationExcellence}
+                              onChange={(e) => handlePromptsSettingChange('communicationExcellence', e.target.checked)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Custom Rules Section */}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                          Rules
+                        </h4>
+                        <button
+                          onClick={addCustomRule}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'var(--accent-color)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          + Add Rule
+                        </button>
+                      </div>
+                      
+                      {promptsSettings.customRules.length === 0 ? (
+                        <div style={{ 
+                          padding: '20px', 
+                          textAlign: 'center', 
+                          color: 'var(--text-secondary)', 
+                          fontSize: '13px',
+                          background: 'var(--bg-primary)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-primary)'
+                        }}>
+                          No custom rules yet. Click "Add Rule" to create one.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {promptsSettings.customRules.map((rule) => (
+                            <div key={rule.id} style={{ 
+                              padding: '12px', 
+                              background: 'var(--bg-primary)', 
+                              borderRadius: '6px', 
+                              border: '1px solid var(--border-primary)' 
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <input
+                                  type="text"
+                                  value={rule.name}
+                                  onChange={(e) => handleCustomRuleChange(rule.id, 'name', e.target.value)}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    flex: 1,
+                                    outline: 'none'
+                                  }}
+                                />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <button
+                                    onClick={() => handleEditRule(rule.id)}
+                                    style={{ 
+                                      background: 'none', 
+                                      border: 'none', 
+                                      color: 'var(--text-secondary)', 
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      borderRadius: '3px'
+                                    }}
+                                    title="Edit rule content"
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                      <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                  </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={rule.enabled}
+                                    onChange={(e) => handleCustomRuleChange(rule.id, 'enabled', e.target.checked)}
+                                  />
+                                  <button
+                                    onClick={() => deleteCustomRule(rule.id)}
+                                    style={{ 
+                                      background: 'none', 
+                                      border: 'none', 
+                                      color: 'var(--error-color)', 
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      borderRadius: '3px'
+                                    }}
+                                    title="Delete rule"
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                  >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <polyline points="3,6 5,6 21,6"/>
+                                      <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"/>
+                                      <line x1="10" y1="11" x2="10" y2="17"/>
+                                      <line x1="14" y1="11" x2="14" y2="17"/>
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                              <textarea
+                                value={rule.content}
+                                onChange={(e) => handleCustomRuleChange(rule.id, 'content', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  minHeight: '60px',
+                                  padding: '8px',
+                                  background: 'var(--bg-secondary)',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: '4px',
+                                  color: 'var(--text-primary)',
+                                  fontSize: '12px',
+                                  resize: 'vertical',
+                                  fontFamily: 'monospace'
+                                }}
+                                placeholder="Enter your custom rule content..."
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Edit Prompt Modal */}
+                {editingPrompt && (
+                  <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                  }}>
+                    <div style={{
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border-primary)',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      width: '80%',
+                      maxWidth: '600px',
+                      maxHeight: '80%',
+                      overflow: 'auto'
+                    }}>
+                      <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>
+                        Edit {editingPrompt.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                      </h3>
+                      <textarea
+                        style={{
+                          width: '100%',
+                          height: '300px',
+                          padding: '12px',
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          fontFamily: 'monospace',
+                          resize: 'vertical'
+                        }}
+                        placeholder="Enter prompt content..."
+                        defaultValue="This prompt content is currently read-only. In a future update, this will allow editing the actual prompt content."
+                      />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => setEditingPrompt(null)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => setEditingPrompt(null)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--accent-color)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Edit Rule Modal */}
+                {editingRule && (
+                  <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                  }}>
+                    <div style={{
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border-primary)',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      width: '80%',
+                      maxWidth: '600px',
+                      maxHeight: '80%',
+                      overflow: 'auto'
+                    }}>
+                      <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>
+                        Edit Rule Content
+                      </h3>
+                      <textarea
+                        style={{
+                          width: '100%',
+                          height: '300px',
+                          padding: '12px',
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          fontFamily: 'monospace',
+                          resize: 'vertical'
+                        }}
+                        placeholder="Enter rule content..."
+                        defaultValue={promptsSettings.customRules.find(r => r.id === editingRule)?.content || ''}
+                        onChange={(e) => {
+                          const rule = promptsSettings.customRules.find(r => r.id === editingRule);
+                          if (rule) {
+                            handleCustomRuleChange(editingRule, 'content', e.target.value);
+                          }
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => setEditingRule(null)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--bg-secondary)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => setEditingRule(null)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--accent-color)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
