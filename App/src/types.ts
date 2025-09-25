@@ -71,7 +71,6 @@ export interface ModelConfig {
   topP: number;
   frequencyPenalty: number;
   presencePenalty: number;
-  systemPrompt?: string;
   contextLength?: number;
   stopSequences?: string[];
   modelProvider?: string;
@@ -258,6 +257,29 @@ export interface DiscordRpcSettings {
   button2Url: string;
 }
 
+export interface CustomRule {
+  id: string;
+  name: string;
+  content: string;
+  enabled: boolean;
+}
+
+export interface PromptsSettings {
+  // Essential prompts (can only be enabled/disabled)
+  enhancedSystemMessage: boolean;
+  conciseChatSystem: boolean;
+  advancedAgentSystem: boolean;
+  refreshKnowledgeSystem: boolean;
+  coreTraits: boolean;
+  fileOperations: boolean;
+  explorationProtocol: boolean;
+  enhancedCapabilities: boolean;
+  communicationExcellence: boolean;
+  
+  // Custom rules (can be added/deleted)
+  customRules: CustomRule[];
+}
+
 export interface ModelAssignments {
   chat: string;
   insert: string;
@@ -274,6 +296,7 @@ export interface AppSettings {
   keybindings?: Record<string, string>;
   terminal?: Record<string, any>;
   discordRpc?: DiscordRpcSettings;
+  prompts?: PromptsSettings;
   advanced?: {
     titleFormat?: string;
     [key: string]: any;
