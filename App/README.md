@@ -85,6 +85,12 @@ A modern, AI-powered code editor built with Electron, React, TypeScript, and Pyt
    echo "VITE_API_URL=http://localhost:23816" > .env
    ```
 
+   or
+
+   ```bash
+   npm run env
+   ```
+
 6. **Launch Application**
    ```bash
    # Easy start (recommended)
