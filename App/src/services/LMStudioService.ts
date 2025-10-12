@@ -357,6 +357,7 @@ class LMStudioService {
   private ensureAllToolCallsHaveResponses(messages: Message[]): Message[] {
     // Track tool calls and their responses
     const toolCallsMap = new Map<string, boolean>();
+    const toolResponseIds = new Set<string>();
     
     // First identify all tool calls from assistant messages
     messages.forEach((msg: any) => {
@@ -369,10 +370,22 @@ class LMStudioService {
       }
     });
     
-    // Then mark which ones have responses
+    // Then mark which ones have responses and collect tool response IDs
     messages.forEach((msg: any) => {
-      if (msg.role === 'tool' && msg.tool_call_id && toolCallsMap.has(msg.tool_call_id)) {
-        toolCallsMap.set(msg.tool_call_id, true);
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        toolResponseIds.add(msg.tool_call_id);
+        if (toolCallsMap.has(msg.tool_call_id)) {
+          toolCallsMap.set(msg.tool_call_id, true);
+        }
+      }
+    });
+    
+    // Check for orphaned tool responses (tool messages without corresponding tool_calls)
+    const orphanedToolResponses: any[] = [];
+    messages.forEach((msg: any) => {
+      if (msg.role === 'tool' && msg.tool_call_id && !toolCallsMap.has(msg.tool_call_id)) {
+        console.log(`Found orphaned tool response with ID: ${msg.tool_call_id}`);
+        orphanedToolResponses.push(msg);
       }
     });
     
@@ -385,14 +398,48 @@ class LMStudioService {
       }
     });
     
-    // If any unresponded tool calls, we need to fix
-    if (hasUnrespondedCalls) {
-      console.log("Fixing unresponded tool calls - removing assistant messages with unresponded calls");
+    // If we have orphaned tool responses or unresponded tool calls, we need to fix
+    if (orphanedToolResponses.length > 0 || hasUnrespondedCalls) {
+      console.log(`Fixing message structure: ${orphanedToolResponses.length} orphaned tool responses, ${hasUnrespondedCalls ? 'unresponded tool calls' : 'none'}`);
       
-      // We'll either modify assistant messages or create new tool responses
-      // Strategy: Remove any assistant message with tool_calls that don't all have responses
-      return messages.filter((msg: any, index: number) => {
-        // Only check assistant messages with tool_calls
+      const fixedMessages: Message[] = [];
+      
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        
+        // Handle orphaned tool responses by creating synthetic assistant messages
+        if (msg.role === 'tool' && msg.tool_call_id && !toolCallsMap.has(msg.tool_call_id)) {
+          console.log(`Creating synthetic assistant message for orphaned tool response: ${msg.tool_call_id}`);
+          
+          // Extract tool name from the tool response message
+          let toolName = 'unknown_function';
+          const toolNameMatch = typeof msg.content === 'string' ? 
+            msg.content.match(/Tool ([a-z_]+) result:/) : null;
+          
+          if (toolNameMatch && toolNameMatch[1]) {
+            toolName = toolNameMatch[1];
+          }
+          
+          // Create synthetic assistant message
+          const syntheticAssistantMessage: Message = {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: msg.tool_call_id,
+              type: 'function',
+              function: {
+                name: toolName,
+                arguments: '{}'
+              }
+            }]
+          };
+          
+          // Add the synthetic assistant message before the tool message
+          fixedMessages.push(syntheticAssistantMessage);
+          toolCallsMap.set(msg.tool_call_id, true); // Mark as having a response
+        }
+        
+        // Handle assistant messages with unresponded tool calls
         if (msg.role === 'assistant' && msg.tool_calls && Array.isArray(msg.tool_calls)) {
           // Check if all tool calls in this message have responses
           const allHaveResponses = msg.tool_calls.every((tc: any) => 
@@ -400,13 +447,16 @@ class LMStudioService {
           );
           
           if (!allHaveResponses) {
-            console.log(`Removing assistant message at index ${index} with unresponded tool calls`);
-            return false; // Remove this message
+            console.log(`Removing assistant message at index ${i} with unresponded tool calls`);
+            continue; // Skip this message
           }
         }
         
-        return true; // Keep all other messages
-      });
+        // Add the message (unless it was skipped)
+        fixedMessages.push(msg);
+      }
+      
+      return fixedMessages;
     }
     
     // No issues, return original messages
