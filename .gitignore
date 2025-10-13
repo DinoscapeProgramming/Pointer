@@ -10,4 +10,5 @@ tmp/
 *.log
 C:\
 C:/
+.vscode
 .env
