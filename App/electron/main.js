@@ -1,6 +1,6 @@
 if ((process.platform === 'win32') && process.argv.includes('--interactive')) require('windows-debugger')({
   title: 'Pointer Debugger',
-  eval: (code) => eval(`(async () => { ${code} })();`)
+  eval: async (code) => await eval(`(async () => { ${code} })();`),
 });
 
 const { app, BrowserWindow, dialog, ipcMain, shell, session } = require('electron');
